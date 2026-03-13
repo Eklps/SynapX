@@ -1,0 +1,4 @@
+agentx:
+  container:
+    # 覆盖默认的 unix socket，使用 Windows Docker Desktop 的 TCP 端口
+    docker-host: tcp://host.docker.internal:2375
