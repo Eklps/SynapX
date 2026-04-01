@@ -126,6 +126,7 @@ services:
 
       # 其他配置
       FILE_STORAGE_PATH: ${FILE_STORAGE_PATH:-/app/storage}
+      AGENTX_CONTAINER_DOCKER_HOST: ${AGENTX_CONTAINER_DOCKER_HOST:-unix:///var/run/docker.sock}
     volumes:
       - storage-data:/app/storage
       - ./logs:/app/logs

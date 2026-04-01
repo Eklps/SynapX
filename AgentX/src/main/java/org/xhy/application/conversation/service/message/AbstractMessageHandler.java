@@ -2,6 +2,7 @@ package org.xhy.application.conversation.service.message;
 
 import cn.hutool.core.collection.CollectionUtil;
 import org.apache.commons.lang3.StringUtils;
+import org.xhy.domain.agent.constant.InterruptStrategy;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -353,6 +354,11 @@ public abstract class AbstractMessageHandler {
         long startTime = System.currentTimeMillis();
 
         tokenStream.onError(throwable -> {
+            // 策略B受控中断：静默处理，不向前端发送报错（SSE连接已由ChatSessionManager关闭）
+            if ("USER_INTERRUPTED".equals(throwable.getMessage())) {
+                logger.info("会话已被用户主动中断（策略B），部分内容已持久化: sessionId={}", chatContext.getSessionId());
+                return;
+            }
             // 直接发送错误消息，transport内部处理连接异常
             transport.sendMessage(connection,
                     AgentChatResponse.buildEndMessage(throwable.getMessage(), MessageType.TEXT));
@@ -367,8 +373,26 @@ public abstract class AbstractMessageHandler {
             onChatCompleted(chatContext, false, throwable.getMessage());
         });
 
+
         // 部分响应处理
         tokenStream.onPartialResponse(reply -> {
+            // 【策略B：立即短路】检测中断信号，需在吸收每个Token时判断
+            InterruptStrategy strategy = chatContext.getAgent().getInterruptStrategy();
+            if (strategy == InterruptStrategy.IMMEDIATE
+                    && chatSessionManager.isSessionInterrupted(chatContext.getSessionId())) {
+                String partialContent = messageBuilder.get().toString();
+                logger.info("策略B：检测到中断信号，准备短路中止: sessionId={}, 已生成内容长度={}",
+                        chatContext.getSessionId(), partialContent.length());
+                // 持久化已生成的部分内容（如果有的话）
+                if (!partialContent.isBlank()) {
+                    llmEntity.setContent(partialContent + "[已中断]");
+                    messageDomainService.saveMessageAndUpdateContext(Collections.singletonList(llmEntity),
+                            chatContext.getContextEntity());
+                }
+                // 抛出受控异常，触发 onError 回调并被静默处理
+                throw new RuntimeException("USER_INTERRUPTED");
+            }
+
             messageBuilder.get().append(reply);
             // 删除换行后消息为空字符串
             if (messageBuilder.get().toString().trim().isEmpty()) {

@@ -55,6 +55,9 @@ public class AgentDTO {
     /** 是否支持多模态 */
     private Boolean multiModal;
 
+    /** 中断策略：COMPLETE-异步跑完（默认）；IMMEDIATE-立即短路 */
+    private String interruptStrategy;
+
     /** 无参构造函数 */
     public AgentDTO() {
         this.toolIds = new ArrayList<>();
@@ -180,6 +183,14 @@ public class AgentDTO {
 
     public void setMultiModal(Boolean multiModal) {
         this.multiModal = multiModal;
+    }
+
+    public String getInterruptStrategy() {
+        return interruptStrategy;
+    }
+
+    public void setInterruptStrategy(String interruptStrategy) {
+        this.interruptStrategy = interruptStrategy;
     }
 
     public String getUserNickname() {

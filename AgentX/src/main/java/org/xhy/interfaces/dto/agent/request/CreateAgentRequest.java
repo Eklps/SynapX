@@ -19,6 +19,9 @@ public class CreateAgentRequest {
     private List<String> knowledgeBaseIds;
     private Map<String, Map<String, Map<String, String>>> toolPresetParams;
     private Boolean multiModal;
+
+    /** 中断策略：COMPLETE-异步跑完（默认）；IMMEDIATE-立即短路 */
+    private String interruptStrategy = "COMPLETE";
     // 构造方法
     public CreateAgentRequest() {
     }
@@ -93,5 +96,13 @@ public class CreateAgentRequest {
 
     public void setMultiModal(Boolean multiModal) {
         this.multiModal = multiModal;
+    }
+
+    public String getInterruptStrategy() {
+        return interruptStrategy;
+    }
+
+    public void setInterruptStrategy(String interruptStrategy) {
+        this.interruptStrategy = interruptStrategy;
     }
 }

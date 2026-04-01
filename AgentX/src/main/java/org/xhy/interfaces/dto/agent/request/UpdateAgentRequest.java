@@ -25,6 +25,9 @@ public class UpdateAgentRequest {
     private Map<String, Map<String, Map<String, String>>> toolPresetParams;
     private Boolean multiModal;
 
+    /** 中断策略：COMPLETE-异步跑完（默认）；IMMEDIATE-立即短路 */
+    private String interruptStrategy;
+
     public String getId() {
         return id;
     }
@@ -112,5 +115,13 @@ public class UpdateAgentRequest {
 
     public void setMultiModal(Boolean multiModal) {
         this.multiModal = multiModal;
+    }
+
+    public String getInterruptStrategy() {
+        return interruptStrategy;
+    }
+
+    public void setInterruptStrategy(String interruptStrategy) {
+        this.interruptStrategy = interruptStrategy;
     }
 }

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.xhy.infrastructure.transport.SseEmitterUtils;
 
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -53,6 +54,9 @@ public class ChatSessionManager {
     // 使用sessionId作为key，存储正在进行的对话会话
     private final ConcurrentHashMap<String, SessionInfo> activeSessions = new ConcurrentHashMap<>();
 
+    // 独立追踪已中断的会话ID（解决 interruptSession 中 remove 后 isSessionInterrupted 失效的问题）
+    private final Set<String> interruptedSessionIds = ConcurrentHashMap.newKeySet();
+
     /** 注册一个新的对话会话
      * @param sessionId 会话ID
      * @param emitter SSE发送器 */
@@ -82,6 +86,7 @@ public class ChatSessionManager {
      * @param sessionId 会话ID */
     public void removeSession(String sessionId) {
         SessionInfo removed = activeSessions.remove(sessionId);
+        interruptedSessionIds.remove(sessionId);
         if (removed != null) {
             long duration = System.currentTimeMillis() - removed.getStartTime();
             logger.info("移除对话会话: sessionId={}, 持续时间={}ms", sessionId, duration);
@@ -100,6 +105,8 @@ public class ChatSessionManager {
 
         // 设置中断标志
         sessionInfo.setInterrupted();
+        // 记录到独立的中断追踪集合（确保 remove 之后仍可查询中断状态）
+        interruptedSessionIds.add(sessionId);
         logger.info("设置会话中断标志: sessionId={}", sessionId);
 
         // 先从活跃会话中移除，避免重复处理
@@ -127,6 +134,10 @@ public class ChatSessionManager {
      * @param sessionId 会话ID
      * @return true表示已中断，false表示未中断或会话不存在 */
     public boolean isSessionInterrupted(String sessionId) {
+        // 优先从独立追踪集合查（解决 interruptSession 中 remove 后查不到的问题）
+        if (interruptedSessionIds.contains(sessionId)) {
+            return true;
+        }
         SessionInfo sessionInfo = activeSessions.get(sessionId);
         return sessionInfo != null && sessionInfo.isInterrupted();
     }

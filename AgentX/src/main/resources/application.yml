@@ -11,6 +11,8 @@ server:
     accept-count: 100 # 等待队列长度
 
 spring:
+  profiles:
+    active: dev
   application:
     name: AgentX
   rabbitmq:
@@ -181,3 +183,4 @@ agentx:
 mcp:
   gateway:
     connect-timeout: ${MCP_GATEWAY_CONNECT_TIMEOUT:60000}
+    read-timeout: ${MCP_GATEWAY_READ_TIMEOUT:300000} # 5 minutes default

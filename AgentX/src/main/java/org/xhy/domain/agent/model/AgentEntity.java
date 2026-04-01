@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
+import org.xhy.domain.agent.constant.InterruptStrategy;
 import org.xhy.infrastructure.converter.ListStringConverter;
 import org.xhy.infrastructure.converter.MapConverter;
 import org.xhy.infrastructure.entity.BaseEntity;
@@ -71,10 +72,15 @@ public class AgentEntity extends BaseEntity {
     @TableField("multi_modal")
     private Boolean multiModal;
 
+    /** 中断策略：COMPLETE-异步跑完（默认）；IMMEDIATE-立即短路 */
+    @TableField("interrupt_strategy")
+    private InterruptStrategy interruptStrategy;
+
     /** 无参构造函数 */
     public AgentEntity() {
         this.toolIds = new ArrayList<>();
         this.knowledgeBaseIds = new ArrayList<>();
+        this.interruptStrategy = InterruptStrategy.COMPLETE;
     }
 
     // Getter和Setter方法
@@ -231,5 +237,13 @@ public class AgentEntity extends BaseEntity {
 
     public void setMultiModal(Boolean multiModal) {
         this.multiModal = multiModal;
+    }
+
+    public InterruptStrategy getInterruptStrategy() {
+        return interruptStrategy;
+    }
+
+    public void setInterruptStrategy(InterruptStrategy interruptStrategy) {
+        this.interruptStrategy = interruptStrategy;
     }
 }

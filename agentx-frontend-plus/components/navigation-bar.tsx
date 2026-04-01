@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Database, FileText, Home, Menu, Search, Settings, PenToolIcon as Tool, UploadCloud, LogOut, Wrench, Activity,Package,Tag } from "lucide-react"
+import { Database, FileText, Home, Menu, Search, Settings, PenToolIcon as Tool, UploadCloud, LogOut, Wrench, Activity,Package,Tag, Shield } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 
 import { cn } from "@/lib/utils"
@@ -236,6 +236,17 @@ export function NavigationBar() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                {userInfo?.email === 'admin@agentx.ai' && (
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin">
+                        <Shield className="mr-2 h-4 w-4 text-blue-600" />
+                        系统管理后台
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem asChild>
                   <Link href="/settings/orders">
                     <Package className="mr-2 h-4 w-4" />

@@ -1,4 +1,4 @@
-# SynaptX - 企业级 AI 智能体平台
+# SynapX - 企业级 AI 智能体平台
 
 SynapX 是一个基于大语言模型 (LLM) 和模型上下文协议 (MCP) 的企业级智能 Agent 构建平台。本项目致力于提供一套完整、高可用且安全的 Agent 运行环境，支持复杂的任务编排、多态知识库检索及安全的工具调用。
 
@@ -62,6 +62,25 @@ npm run dev
 cd deploy
 ./start.sh
 ```
+
+## 🛠️ 服务访问与管理 (Quick Access)
+
+项目成功启动后，您可以通过以下地址访问各个组件：
+
+| 组件名称 | 访问地址 | 说明 |
+| :--- | :--- | :--- |
+| **系统前端 (Frontend)** | [http://localhost:3000](http://localhost:3000) | AgentX 用户交互界面 |
+| **后端 API (Core API)** | [http://localhost:8088/api](http://localhost:8088/api) | 后端 RESTful API 接口地址 |
+| **API 高可用网关** | [http://localhost:8081](http://localhost:8081) | 自研 LLM 路由与分发网关 |
+| **数据库管理 (Adminer)** | [http://localhost:8082](http://localhost:8082) | 轻量级数据库管理平台 (仅 dev 模式) |
+| **消息队列管理** | [http://localhost:15672](http://localhost:15672) | RabbitMQ 控制台 (guest/guest) |
+
+### 🔑 默认登录账号
+
+| 角色 | 账号 | 密码 |
+| :--- | :--- | :--- |
+| **系统管理员** | `admin@agentx.ai` | `admin123` |
+| **测试用户** | `test@agentx.ai` | `test123` |
 
 ## ⚙️ 核心环境变量说明 (参考)
 

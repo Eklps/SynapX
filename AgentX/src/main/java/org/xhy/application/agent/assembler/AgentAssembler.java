@@ -2,6 +2,7 @@ package org.xhy.application.agent.assembler;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.beans.BeanUtils;
+import org.xhy.domain.agent.constant.InterruptStrategy;
 import org.xhy.domain.agent.model.AgentEntity;
 
 import org.xhy.application.agent.dto.AgentDTO;
@@ -45,6 +46,17 @@ public class AgentAssembler {
         // 设置预先设置的工具参数
         entity.setToolPresetParams(request.getToolPresetParams());
         entity.setMultiModal(request.getMultiModal());
+
+        // 解析中断策略（容错处理：不合法则默认为 COMPLETE）
+        try {
+            String strategyStr = request.getInterruptStrategy();
+            entity.setInterruptStrategy(strategyStr != null
+                    ? InterruptStrategy.valueOf(strategyStr.toUpperCase())
+                    : InterruptStrategy.COMPLETE);
+        } catch (IllegalArgumentException e) {
+            entity.setInterruptStrategy(InterruptStrategy.COMPLETE);
+        }
+
         return entity;
     }
 
@@ -54,6 +66,17 @@ public class AgentAssembler {
 
         BeanUtils.copyProperties(request, entity);
         entity.setUserId(userId);
+
+        // BeanUtils 无法处理 String → Enum，需要手动解析
+        try {
+            String strategyStr = request.getInterruptStrategy();
+            if (strategyStr != null) {
+                entity.setInterruptStrategy(InterruptStrategy.valueOf(strategyStr.toUpperCase()));
+            }
+        } catch (IllegalArgumentException e) {
+            entity.setInterruptStrategy(InterruptStrategy.COMPLETE);
+        }
+
         return entity;
     }
 
@@ -64,6 +87,12 @@ public class AgentAssembler {
         }
         AgentDTO dto = new AgentDTO();
         BeanUtils.copyProperties(entity, dto);
+
+        // 枚举 → String，供前端展示
+        if (entity.getInterruptStrategy() != null) {
+            dto.setInterruptStrategy(entity.getInterruptStrategy().name());
+        }
+
         return dto;
     }
 
