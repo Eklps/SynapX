@@ -164,5 +164,4 @@ next-env.d.ts
 # doc
 docs/myDocs/
 
-#doc
-/docs/
+

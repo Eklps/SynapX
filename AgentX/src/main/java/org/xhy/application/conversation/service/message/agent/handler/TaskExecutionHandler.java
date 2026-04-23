@@ -79,71 +79,92 @@ public class TaskExecutionHandler extends AbstractAgentHandler {
         }
     }
 
-    /** 执行单个子任务 */
+    /** 执行单个子任务（含重试机制） */
     private <T> void executeSubTask(AgentWorkflowContext<T> context, TaskEntity subTask, String taskName,
             ToolProvider toolProvider) {
 
-        try {
-            String taskId = subTask.getId();
-            // 更新任务状态为进行中
-            taskManager.updateTaskStatus(subTask, TaskStatus.IN_PROGRESS);
+        int maxRetries = 2; // 最多重试2次（共执行3次）
+        Exception lastException = null;
 
-            // 保存执行消息
-            MessageEntity taskCallMessageEntity = createMessageEntity(context, MessageType.TASK_EXEC, taskName, 0);
-            messageDomainService.saveMessage(Collections.singletonList(taskCallMessageEntity));
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                if (attempt > 0) {
+                    // 重试前等待1秒，避免瞬时重复请求
+                    Thread.sleep(1000);
+                    context.sendEndMessage("任务 '" + taskName + "' 第 " + attempt + " 次重试...", MessageType.TEXT);
+                }
 
-            // 通知前端当前执行的任务
-            context.sendEndMessage(taskName, MessageType.TASK_EXEC);
+                String taskId = subTask.getId();
+                // 更新任务状态为进行中
+                taskManager.updateTaskStatus(subTask, TaskStatus.IN_PROGRESS);
 
-            // 通知前端任务状态
-            context.sendEndWithTaskIdMessage(taskId, MessageType.TASK_STATUS_TO_LOADING);
+                // 首次执行时保存执行消息并通知前端
+                if (attempt == 0) {
+                    MessageEntity taskCallMessageEntity = createMessageEntity(context, MessageType.TASK_EXEC, taskName,
+                            0);
+                    messageDomainService.saveMessage(Collections.singletonList(taskCallMessageEntity));
+                    context.sendEndMessage(taskName, MessageType.TASK_EXEC);
+                    context.sendEndWithTaskIdMessage(taskId, MessageType.TASK_STATUS_TO_LOADING);
+                }
 
-            // 获取用户原始请求
-            String userRequest = context.getChatContext().getUserMessage();
+                // 获取用户原始请求
+                String userRequest = context.getChatContext().getUserMessage();
 
-            // 获取之前子任务的结果
-            Map<String, String> previousTaskResults = context.getTaskResults();
+                // 获取之前子任务的结果
+                Map<String, String> previousTaskResults = context.getTaskResults();
 
-            // 构建任务提示词
-            String taskPrompt = AgentPromptTemplates.getTaskExecutionPrompt(userRequest, taskName, previousTaskResults);
+                // 构建任务提示词
+                String taskPrompt = AgentPromptTemplates.getTaskExecutionPrompt(userRequest, taskName,
+                        previousTaskResults);
 
-            // 执行子任务
-            ChatModel strandClient = llmServiceFactory.getStrandClient(context.getChatContext().getProvider(),
-                    context.getChatContext().getModel());
+                // 执行子任务
+                ChatModel strandClient = llmServiceFactory.getStrandClient(context.getChatContext().getProvider(),
+                        context.getChatContext().getModel());
 
-            // 创建Agent服务
-            Agent agent = AiServices.builder(Agent.class).chatModel(strandClient).toolProvider(toolProvider).build();
+                // 创建Agent服务
+                Agent agent = AiServices.builder(Agent.class).chatModel(strandClient).toolProvider(toolProvider)
+                        .build();
 
-            // 执行任务，直接使用完整提示词
-            AiMessage aiMessage = agent.chat(taskPrompt);
+                // 执行任务
+                AiMessage aiMessage = agent.chat(taskPrompt);
 
-            // 处理工具调用
-            if (aiMessage.hasToolExecutionRequests()) {
-                handleToolCalls(aiMessage, context);
+                // 处理工具调用
+                if (aiMessage.hasToolExecutionRequests()) {
+                    handleToolCalls(aiMessage, context);
+                }
+
+                // 获取任务结果
+                String taskResult = aiMessage.text();
+
+                // 保存子任务结果
+                context.addTaskResult(taskName, taskResult);
+                taskManager.completeTask(subTask, taskResult);
+
+                // 通知前端任务完成
+                context.sendEndWithTaskIdMessage(subTask.getId(), MessageType.TASK_STATUS_TO_FINISH);
+
+                return; // 执行成功，直接返回
+
+            } catch (Exception e) {
+                lastException = e;
+                if (attempt < maxRetries) {
+                    // 还有重试机会，记录日志继续
+                    continue;
+                }
             }
-
-            // 获取任务结果
-            String taskResult = aiMessage.text();
-
-            // 保存子任务结果
-            context.addTaskResult(taskName, taskResult);
-            taskManager.completeTask(subTask, taskResult);
-
-            // 通知前端任务完成
-            context.sendEndWithTaskIdMessage(taskId, MessageType.TASK_STATUS_TO_FINISH);
-
-        } catch (Exception e) {
-            // 处理子任务执行异常，但不影响其他子任务执行
-            subTask.updateStatus(TaskStatus.FAILED);
-            subTask.setTaskResult("执行失败: " + e.getMessage());
-            taskManager.updateTaskStatus(subTask, TaskStatus.FAILED);
-
-            // 记录错误并继续
-            context.sendEndMessage("任务 '" + taskName + "' 执行失败: " + e.getMessage(), MessageType.TEXT);
-
-            // 为了工作流继续，我们仍然增加已完成任务计数
-            context.addTaskResult(taskName, "执行失败: " + e.getMessage());
         }
+
+        // 所有重试均失败，执行降级逻辑
+        subTask.updateStatus(TaskStatus.FAILED);
+        subTask.setTaskResult("执行失败(已重试" + maxRetries + "次): " + lastException.getMessage());
+        taskManager.updateTaskStatus(subTask, TaskStatus.FAILED);
+
+        context.sendEndMessage(
+                "任务 '" + taskName + "' 执行失败(已重试" + maxRetries + "次): " + lastException.getMessage(),
+                MessageType.TEXT);
+
+        // 失败结果仍然写入，保证工作流继续
+        context.addTaskResult(taskName, "执行失败: " + lastException.getMessage());
     }
 
     /** 处理工具调用 */
