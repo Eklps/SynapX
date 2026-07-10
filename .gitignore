@@ -151,8 +151,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
-.env*
+# env files（忽略真实 .env，但放行 .env.*.example 模板供部署参考）
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.*.example
 
 # vercel
 .vercel
