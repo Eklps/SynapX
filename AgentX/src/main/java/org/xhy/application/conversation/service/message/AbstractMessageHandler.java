@@ -271,13 +271,20 @@ public abstract class AbstractMessageHandler {
 
         try {
 
-            List<ChatMessage> messages = memory.messages();
-            messages.add(new UserMessage(chatContext.getUserMessage()));
+            // 4. 构建同步Agent（通过 AiServices 包装，使 ToolProvider 生效）。
+            // 直接调用 syncClient.chat(messages) 不会声明/执行工具。
+            // 把已有人工智能记忆（含历史）装载进 AiServices，由其内部处理消息组装与工具执行循环。
+            SyncAgent syncAgent = buildSyncAgent(syncClient, memory, toolProvider, chatContext.getAgent());
+            String answer = syncAgent.chat(chatContext.getUserMessage());
 
-            // 4. 构建同步Agent并调用
-            ChatResponse chatResponse = syncClient.chat(messages);
+            // 5. 构造 ChatResponse 以复用后续统一的 token/计费/钩子逻辑。
+            // 注意：AiServices 的 String 返回不带 tokenUsage，同步+工具路径的 token 统计暂不可得（降级为 0）。
+            ChatResponse chatResponse = ChatResponse.builder()
+                    .aiMessage(new AiMessage(answer))
+                    .tokenUsage(new dev.langchain4j.model.output.TokenUsage(0, 0))
+                    .build();
 
-            // 5. 处理响应 - 设置消息token
+            // 6. 处理响应 - 设置消息token
             this.setMessageTokenCount(chatContext.getMessageHistory(), userEntity, llmEntity, chatResponse);
 
             // 6. 调用模型调用完成钩子
@@ -525,7 +532,27 @@ public abstract class AbstractMessageHandler {
         return agentService.build();
     }
 
-    /** 创建用户消息实体 */
+    /** 构建同步Agent（与 {@link #buildStreamingAgent} 对应，使用同步 ChatModel）。
+     * <p>同步路径必须通过 AiServices 包装才能让 ToolProvider 生效——直接调用
+     * {@link ChatModel#chat(java.util.List)} 不会声明/执行工具。 */
+    protected SyncAgent buildSyncAgent(ChatModel model, MessageWindowChatMemory memory,
+            ToolProvider toolProvider, AgentEntity agent) {
+
+        Map<ToolSpecification, ToolExecutor> builtInTools = builtInToolRegistry.createToolsForAgent(agent);
+
+        AiServices<SyncAgent> agentService = AiServices.builder(SyncAgent.class).chatModel(model).chatMemory(memory);
+
+        if (builtInTools != null && !builtInTools.isEmpty()) {
+            agentService.tools(builtInTools);
+        }
+
+        if (toolProvider != null) {
+            agentService.toolProvider(toolProvider);
+        }
+
+        return agentService.build();
+    }
+
     protected MessageEntity createUserMessage(ChatContext environment) {
         MessageEntity messageEntity = new MessageEntity();
         messageEntity.setRole(Role.USER);

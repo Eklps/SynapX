@@ -91,11 +91,14 @@ public class AgentSessionAppService {
         SessionEntity session = sessionDomainService.createSession(agentId, userId);
         AgentEntity agent = agentServiceDomainService.getAgentWithPermissionCheck(agentId, userId);
         String welcomeMessage = agent.getWelcomeMessage();
-        MessageEntity messageEntity = new MessageEntity();
-        messageEntity.setRole(Role.SYSTEM);
-        messageEntity.setContent(welcomeMessage);
-        messageEntity.setSessionId(session.getId());
-        conversationDomainService.saveMessage(messageEntity);
+        // welcomeMessage 为空时跳过插入 SYSTEM 消息，避免 content 列 NOT NULL 约束违反
+        if (welcomeMessage != null && !welcomeMessage.isBlank()) {
+            MessageEntity messageEntity = new MessageEntity();
+            messageEntity.setRole(Role.SYSTEM);
+            messageEntity.setContent(welcomeMessage);
+            messageEntity.setSessionId(session.getId());
+            conversationDomainService.saveMessage(messageEntity);
+        }
         return SessionAssembler.toDTO(session);
     }
 

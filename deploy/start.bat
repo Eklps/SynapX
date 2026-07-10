@@ -1,135 +1,133 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM AgentX一键启动脚本 - Windows版本
-REM 支持多种部署模式：local/production/external
+REM AgentX one-click start script - Windows version
+REM Supports deployment modes: local/production/external
 
-REM 颜色定义 (Windows ANSI转义序列)
+REM ANSI color codes
 set GREEN=[32m
 set YELLOW=[33m
 set RED=[31m
 set BLUE=[34m
 set NC=[0m
 
-REM 项目信息
+REM Banner
 echo %BLUE%
-echo    ████  ████   █████  ██   ██ █████ ██   ██
-echo   ██  ████  ██ ██      ███  ██   ██    ██ ██ 
-echo   ██████ ██████ █████  ██ █ ██   ██     ███  
-echo   ██  ██ ██  ██ ██     ██  ███   ██    ██ ██ 
-echo   ██  ██ ██  ██ █████  ██   ██   ██   ██   ██
+echo    ███████ ███████ ███   ███ ██   ██ ███████ ███████
+echo     ██    ██     █████  ████ ██  ██  ██     ██     ██
+echo     ██    █████  ██ ████ ██ █████   █████  ████████
+echo     ██    ██     ██  ████ ██ ██  ██  ██     ██   ██
+echo     ██    ███████ ██   ███  ██   ██ ███████ ██    ██
 echo %NC%
-echo %GREEN%            智能AI助手平台 - 统一部署工具%NC%
+echo %GREEN%              SynapX - AI Agent Platform (Dev Deploy)%NC%
 echo %BLUE%========================================================%NC%
 echo.
 
-echo %YELLOW%AgentX 开发环境启动%NC%
-echo 本脚本适用于开发者进行本地开发
-echo 如需生产环境部署，请参考: docs/deployment/PRODUCTION_DEPLOY.md
+echo %YELLOW%AgentX development environment startup%NC%
+echo This script is for local development.
+echo For production deployment, see: docs/deployment/PRODUCTION_DEPLOY.md
 echo.
 
-REM 检查Docker环境
+REM Check Docker
 :check_docker
 where docker >nul 2>&1
 if errorlevel 1 (
-    echo %RED%错误: Docker未安装，请先安装Docker Desktop%NC%
+    echo %RED%Error: Docker is not installed. Please install Docker Desktop first.%NC%
     pause
     exit /b 1
 )
 
 docker compose version >nul 2>&1
 if errorlevel 1 (
-    echo %RED%错误: Docker Compose未安装或版本过低%NC%
+    echo %RED%Error: Docker Compose is not installed or version is too old.%NC%
     pause
     exit /b 1
 )
 
-echo %GREEN%✅ Docker环境检查通过%NC%
+echo %GREEN%[OK] Docker environment check passed%NC%
 echo.
 
-REM 设置开发模式配置
+REM Development mode config
 :set_development_mode
 set MODE=dev
 set ENV_FILE=.env.local.example
 set PROFILE=local,dev
 set DOCKERFILE_SUFFIX=.dev
 
-echo %GREEN%🔥 启动开发模式%NC%
-echo   - 内置数据库 + 消息队列
-echo   - 代码热重载支持
-echo   - 数据库管理工具 (Adminer)
-echo   - 调试端口开放
+echo %GREEN%[...] Starting development mode%NC%
+echo   - Built-in database + message queue
+echo   - Code hot-reload support
+echo   - Database management tool (Adminer)
+echo   - Debug port exposed
 echo.
 
-REM 准备环境配置
+REM Prepare .env
 :prepare_env
 if not exist ".env" (
-    echo %YELLOW%创建环境配置文件...%NC%
+    echo %YELLOW%Creating .env config file...%NC%
     if exist "%ENV_FILE%" (
         copy "%ENV_FILE%" ".env" >nul
-        echo %GREEN%✅ 已创建 .env 文件，基于模板: %ENV_FILE%%NC%
+        echo %GREEN%[OK] Created .env from template: %ENV_FILE%%NC%
     ) else (
-        echo %RED%错误: 模板文件 %ENV_FILE% 不存在%NC%
+        echo %RED%Error: template file %ENV_FILE% not found%NC%
         pause
         exit /b 1
     )
 ) else (
-    echo %GREEN%✅ 使用现有 .env 配置文件%NC%
+    echo %GREEN%[OK] Using existing .env config file%NC%
 )
 echo.
 
-REM 启动服务
+REM Start services
 :start_services
-echo %BLUE%启动AgentX服务...%NC%
-echo 部署模式: %MODE%
+echo %BLUE%Starting AgentX services...%NC%
+echo Deploy mode: %MODE%
 echo Docker Compose Profile: %PROFILE%
 echo.
 
-REM 设置环境变量
+REM Set environment variables
 set COMPOSE_PROFILES=%PROFILE%
 set DOCKERFILE_SUFFIX=%DOCKERFILE_SUFFIX%
 
-REM 启动服务 (支持多个profile)
-echo %YELLOW%正在构建和启动容器...%NC%
+REM Start services (multiple profiles)
+echo %YELLOW%Building and starting containers...%NC%
 docker compose --profile local --profile dev up -d --build
 
 if errorlevel 1 (
     echo.
-    echo %RED%❌ 服务启动失败，请检查错误信息%NC%
+    echo %RED%[FAIL] Service startup failed. Check the error above.%NC%
     echo.
-    echo %YELLOW%常用排错命令:%NC%
-    echo   查看详细日志: docker compose logs
-    echo   查看容器状态: docker compose ps
-    echo   重新构建: docker compose build --no-cache
+    echo %YELLOW%Troubleshooting commands:%NC%
+    echo   View logs:        docker compose logs
+    echo   Container status: docker compose ps
+    echo   Rebuild:          docker compose build --no-cache
+    echo.
+    echo %YELLOW%If you see "dockerDesktopLinuxEngine not found",%NC%
+    echo %YELLOW%start Docker Desktop first, then re-run this script.%NC%
     pause
     exit /b 1
 )
 
 echo.
-echo %GREEN%🎉 AgentX启动完成！%NC%
+echo %GREEN%[DONE] AgentX started successfully!%NC%
 echo.
-echo %BLUE%服务访问地址:%NC%
-echo   前端: http://localhost:3000
-echo   后端API: http://localhost:8080
-echo   API网关: http://localhost:8081
+echo %BLUE%Service URLs:%NC%
+echo   Frontend:      http://localhost:3000
+echo   Backend API:   http://localhost:8088
+echo   API Gateway:   http://localhost:8081
 
 if "%MODE%"=="dev" (
-    echo   数据库管理: http://localhost:8082
+    echo   DB Adminer:    http://localhost:8082
 )
 
 echo.
-echo %BLUE%默认登录账号:%NC%
-echo   管理员: admin@agentx.ai / admin123
-
-if "%MODE%"=="local" (
-    echo   测试用户: test@agentx.ai / test123
-) else if "%MODE%"=="dev" (
-    echo   测试用户: test@agentx.ai / test123
-)
+echo %BLUE%Default accounts:%NC%
+echo   Admin: admin@agentx.ai / admin123
+echo   User:  test@agentx.ai / test123
 
 echo.
-echo %YELLOW%常用命令:%NC%
-echo   查看日志: docker compose logs -f
-echo   停止服务: docker compose down
-echo   重启服务: docker compose restart
-echo   查看状态: docker compose ps
+echo %YELLOW%Common commands:%NC%
+echo   View logs:   docker compose logs -f
+echo   Stop:        docker compose down
+echo   Restart:     docker compose restart
+echo   Status:      docker compose ps

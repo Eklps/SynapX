@@ -1,8 +1,8 @@
-# AgentX Frontend Plus
+# SynapX Frontend Plus
 
 ## 项目概述
 
-AgentX的前端项目，基于Next.js开发。
+SynapX的前端项目，基于Next.js开发。
 
 ## 技术栈
 

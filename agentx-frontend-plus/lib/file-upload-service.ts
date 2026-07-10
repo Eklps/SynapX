@@ -1,26 +1,5 @@
-// 文件上传服务
-import { toast } from '@/hooks/use-toast'
-import { httpClient } from '@/lib/http-client'
-
-// OSS上传凭证接口
-export interface OssUploadCredential {
-  uploadUrl: string
-  accessKeyId: string
-  policy: string
-  signature: string
-  keyPrefix: string
-  accessUrlPrefix: string
-  expiration: string
-  maxFileSize: number
-}
-
-// 后端响应格式
-interface UploadCredentialResponse {
-  code: number
-  message: string
-  data: OssUploadCredential
-  timestamp: number
-}
+// 文件上传服务（本地直传版）
+import { API_CONFIG } from '@/lib/api-config'
 
 // 上传结果
 export interface UploadResult {
@@ -38,99 +17,82 @@ export interface UploadFileInfo {
   fileSize: number
 }
 
-/**
- * 获取OSS上传凭证
- */
-export async function getUploadCredential(): Promise<OssUploadCredential> {
-  try {
-    const response = await httpClient.get<UploadCredentialResponse>('/upload/credential')
-    
-    if (response.code !== 200) {
-      throw new Error(response.message || '获取上传凭证失败')
-    }
-
-    return response.data
-  } catch (error) {
- 
-    throw new Error(error instanceof Error ? error.message : '获取上传凭证失败')
+// 后端本地直传响应
+interface LocalUploadResponse {
+  code: number
+  message: string
+  data: {
+    url: string
+    fileName: string
+    fileSize: number
+    fileType: string
   }
+  timestamp: number
 }
 
+// 单文件最大体积（字节，与后端 multipart max-file-size 50MB 对齐）
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
+
 /**
- * 上传文件到OSS
+ * 上传单个文件到后端（本地直传，支持进度回调）。
+ * 文件以 multipart/form-data 形式 POST 到 /upload，后端存到本地存储并返回可访问 URL。
  */
-export async function uploadFileToOss(
+export async function uploadFile(
   fileInfo: UploadFileInfo,
-  credential: OssUploadCredential,
   onProgress?: (progress: number) => void
 ): Promise<UploadResult> {
-  try {
-    // 生成唯一文件名
-    const timestamp = Date.now()
-    const randomStr = Math.random().toString(36).substring(2, 8)
-    const fileExtension = fileInfo.fileName.split('.').pop() || ''
-    const uniqueFileName = `${timestamp}_${randomStr}.${fileExtension}`
-    const objectKey = `${credential.keyPrefix}${uniqueFileName}`
+  // 大小校验
+  if (fileInfo.fileSize > MAX_FILE_SIZE_BYTES) {
+    throw new Error(`文件 ${fileInfo.fileName} 超过大小限制(${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB)`)
+  }
 
-    // 构建FormData
-    const formData = new FormData()
-    formData.append('key', objectKey)
-    formData.append('policy', credential.policy)
-    formData.append('OSSAccessKeyId', credential.accessKeyId)
-    formData.append('signature', credential.signature)
-    formData.append('file', fileInfo.file)
+  const formData = new FormData()
+  formData.append('file', fileInfo.file)
 
-    // 创建XMLHttpRequest以支持进度回调
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest()
+  // 用 XMLHttpRequest 支持上传进度
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
 
-      // 进度回调
-      if (onProgress) {
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-            const progress = Math.round((event.loaded / event.total) * 100)
-            onProgress(progress)
-          }
-        })
-      }
-
-      // 完成回调
-      xhr.addEventListener('load', () => {
-        if (xhr.status === 204) {
-          // OSS上传成功返回204
-          const fileUrl = `${credential.accessUrlPrefix}${uniqueFileName}`
-          resolve({
-            url: fileUrl,
-            fileName: fileInfo.fileName,
-            fileSize: fileInfo.fileSize,
-            fileType: fileInfo.fileType
-          })
-        } else {
-          reject(new Error(`上传失败: HTTP ${xhr.status}`))
+    if (onProgress) {
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          const progress = Math.round((event.loaded / event.total) * 100)
+          onProgress(progress)
         }
       })
+    }
 
-      // 错误回调
-      xhr.addEventListener('error', () => {
-        reject(new Error('网络错误，上传失败'))
-      })
-
-      // 超时回调
-      xhr.addEventListener('timeout', () => {
-        reject(new Error('上传超时'))
-      })
-
-      // 设置超时时间（30秒）
-      xhr.timeout = 30000
-
-      // 发送请求
-      xhr.open('POST', credential.uploadUrl)
-      xhr.send(formData)
+    xhr.addEventListener('load', () => {
+      try {
+        const resp: LocalUploadResponse = JSON.parse(xhr.responseText)
+        if (xhr.status >= 200 && xhr.status < 300 && resp.code === 200 && resp.data?.url) {
+          resolve({
+            url: resp.data.url,
+            fileName: resp.data.fileName || fileInfo.fileName,
+            fileSize: resp.data.fileSize || fileInfo.fileSize,
+            fileType: resp.data.fileType || fileInfo.fileType
+          })
+        } else {
+          reject(new Error(resp.message || `上传失败: HTTP ${xhr.status}`))
+        }
+      } catch {
+        reject(new Error(`上传失败: HTTP ${xhr.status}`))
+      }
     })
-  } catch (error) {
- 
-    throw new Error(error instanceof Error ? error.message : '上传文件失败')
-  }
+
+    xhr.addEventListener('error', () => reject(new Error('网络错误，上传失败')))
+    xhr.addEventListener('timeout', () => reject(new Error('上传超时')))
+    xhr.timeout = 60000
+
+    // API_CONFIG.BASE_URL 形如 http://localhost:8088/api
+    xhr.open('POST', API_CONFIG.BASE_URL + '/upload')
+    // 携带鉴权
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    }
+    xhr.send(formData)
+  })
 }
 
 /**
@@ -142,41 +104,24 @@ export async function uploadMultipleFiles(
   onFileComplete?: (fileIndex: number, result: UploadResult) => void,
   onError?: (fileIndex: number, error: Error) => void
 ): Promise<UploadResult[]> {
-  try {
-    // 获取上传凭证
-    const credential = await getUploadCredential()
-    
-    // 检查文件大小
-    const oversizedFiles = files.filter(file => file.fileSize > credential.maxFileSize * 1024)
-    if (oversizedFiles.length > 0) {
-      throw new Error(`以下文件超过大小限制(${credential.maxFileSize}KB): ${oversizedFiles.map(f => f.fileName).join(', ')}`)
-    }
+  const results: UploadResult[] = []
 
-    const results: UploadResult[] = []
-    
-    // 逐个上传文件
-    for (let i = 0; i < files.length; i++) {
-      try {
-        const result = await uploadFileToOss(
-          files[i],
-          credential,
-          (progress) => onProgress?.(i, progress)
-        )
-        
-        results.push(result)
-        onFileComplete?.(i, result)
-      } catch (error) {
-        const uploadError = error instanceof Error ? error : new Error('上传失败')
-        onError?.(i, uploadError)
-        throw uploadError
-      }
+  for (let i = 0; i < files.length; i++) {
+    try {
+      const result = await uploadFile(
+        files[i],
+        (progress) => onProgress?.(i, progress)
+      )
+      results.push(result)
+      onFileComplete?.(i, result)
+    } catch (error) {
+      const uploadError = error instanceof Error ? error : new Error('上传失败')
+      onError?.(i, uploadError)
+      throw uploadError
     }
-
-    return results
-  } catch (error) {
- 
-    throw error
   }
+
+  return results
 }
 
 /**
@@ -192,18 +137,10 @@ export async function uploadSingleFile(
     fileType: file.type,
     fileSize: file.size
   }
+  return uploadFile(fileInfo, onProgress)
+}
 
-  try {
-    const credential = await getUploadCredential()
-    
-    // 检查文件大小
-    if (file.size > credential.maxFileSize * 1024) {
-      throw new Error(`文件 ${file.name} 超过大小限制(${credential.maxFileSize}KB)`)
-    }
-
-    return await uploadFileToOss(fileInfo, credential, onProgress)
-  } catch (error) {
- 
-    throw error
-  }
-} 
+// 兼容旧导出（部分调用方可能引用）
+export async function getUploadCredential(): Promise<never> {
+  throw new Error('OSS 直传已停用，请改用 uploadFile / uploadMultipleFiles')
+}

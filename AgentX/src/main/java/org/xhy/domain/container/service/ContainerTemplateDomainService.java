@@ -301,7 +301,7 @@ public class ContainerTemplateDomainService {
         template.setInternalPort(8080);
         template.setCpuLimit(1.0);
         template.setMemoryLimit(512);
-        template.setVolumeMountPath("/app/data");
+        template.setVolumeMountPath("/app/storage");
         template.setNetworkMode("bridge");
         template.setRestartPolicy("unless-stopped");
         template.setEnabled(true);
@@ -322,7 +322,7 @@ public class ContainerTemplateDomainService {
         template.setInternalPort(8080);
         template.setCpuLimit(1.0);
         template.setMemoryLimit(512);
-        template.setVolumeMountPath("/app/data");
+        template.setVolumeMountPath("/app/storage");
         template.setNetworkMode("bridge");
         template.setRestartPolicy("unless-stopped");
         template.setEnabled(true);

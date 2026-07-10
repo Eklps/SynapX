@@ -112,7 +112,7 @@ export function AdminSidebar() {
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
             <Settings className="w-5 h-5 text-white" />
           </div>
-          <span className="ml-3 text-lg font-semibold text-gray-900">AgentX Admin</span>
+          <span className="ml-3 text-lg font-semibold text-gray-900">SynapX Admin</span>
         </div>
       </div>
 
@@ -136,7 +136,7 @@ export function AdminSidebar() {
       {/* 底部信息 */}
       <div className="p-4 border-t border-gray-200 flex-shrink-0">
         <div className="text-xs text-gray-500 text-center">
-          AgentX 管理后台
+          SynapX 管理后台
           <br />
           v1.0.0
         </div>

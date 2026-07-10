@@ -112,7 +112,7 @@ export function CreateApiKeyDialog({
         <DialogHeader>
           <DialogTitle>创建 API 密钥</DialogTitle>
           <DialogDescription>
-            创建一个新的 API 密钥以访问 AgentX API。
+            创建一个新的 API 密钥以访问 SynapX API。
           </DialogDescription>
         </DialogHeader>
 

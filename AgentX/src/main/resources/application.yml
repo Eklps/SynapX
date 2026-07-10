@@ -15,6 +15,10 @@ spring:
     active: dev
   application:
     name: AgentX
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}

@@ -8,8 +8,8 @@ export default function WidgetLayout({ children }: { children: React.ReactNode }
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
-        <title>AgentX Widget</title>
-        <meta name="description" content="AgentX 智能助理组件" />
+        <title>SynapX Widget</title>
+        <meta name="description" content="SynapX 智能助理组件" />
       </head>
       <body>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>

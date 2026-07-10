@@ -31,7 +31,7 @@ export default function WidgetCodeDialog({ open, onClose, widget, onCopy }: Widg
   const generateEmbedCode = (type: string) => {
     switch (type) {
       case "iframe":
-        return `<!-- AgentX 智能助手小组件 - iframe模式 -->
+        return `<!-- SynapX 智能助手小组件 - iframe模式 -->
 <iframe 
   src="${widgetUrl}"
   width="400" 
@@ -42,7 +42,7 @@ export default function WidgetCodeDialog({ open, onClose, widget, onCopy }: Widg
 </iframe>`;
 
       case "floating":
-        return `<!-- AgentX 智能助手小组件 - 悬浮窗模式 -->
+        return `<!-- SynapX 智能助手小组件 - 悬浮窗模式 -->
 <script>
   (function() {
     const agentButton = document.createElement('div');
@@ -80,7 +80,7 @@ export default function WidgetCodeDialog({ open, onClose, widget, onCopy }: Widg
 </script>`;
 
       case "responsive":
-        return `<!-- AgentX 智能助手小组件 - 响应式模式 -->
+        return `<!-- SynapX 智能助手小组件 - 响应式模式 -->
 <div style="width: 100%; max-width: 500px; margin: 0 auto;">
   <iframe 
     src="${widgetUrl}"

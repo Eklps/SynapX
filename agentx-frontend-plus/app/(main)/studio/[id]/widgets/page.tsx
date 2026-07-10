@@ -393,7 +393,7 @@ export default function AgentWidgetsPage() {
                         <Label className="text-sm font-semibold">固定iframe嵌入模式</Label>
                         <div className="mt-2 relative">
                           <pre className="bg-gray-100 p-4 rounded-md text-xs overflow-x-auto max-h-48 overflow-y-auto">
-{`<!-- AgentX 智能助手小组件嵌入代码 -->
+{`<!-- SynapX 智能助手小组件嵌入代码 -->
 <iframe 
   src="${window.location.origin}/widget/${widget.publicId}"
   width="400" 
@@ -406,7 +406,7 @@ export default function AgentWidgetsPage() {
                           <Button
                             size="sm"
                             className="absolute top-2 right-2"
-                            onClick={() => copyToClipboard(`<!-- AgentX 智能助手小组件嵌入代码 -->
+                            onClick={() => copyToClipboard(`<!-- SynapX 智能助手小组件嵌入代码 -->
 <iframe 
   src="${window.location.origin}/widget/${widget.publicId}"
   width="400" 

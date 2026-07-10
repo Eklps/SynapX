@@ -7,7 +7,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
-        <title>AgentX</title>
+        <title>SynapX</title>
         <meta name="description" content="您的全方位 AI 代理平台" />
       </head>
       <body>

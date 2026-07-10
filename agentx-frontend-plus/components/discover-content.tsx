@@ -138,7 +138,7 @@ export function DiscoverContent() {
   return (
     <div className="container py-6 px-4">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-blue-600">探索 AgentX 的应用</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-blue-600">探索 SynapX 的应用</h1>
         <p className="text-muted-foreground mt-1">使用这些模板应用程序，或根据模板自定义您自己的应用程序。</p>
       </div>
 

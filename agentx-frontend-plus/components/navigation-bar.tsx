@@ -118,7 +118,7 @@ export function NavigationBar() {
             <div className="px-7">
               <Link href="/" className="flex items-center" onClick={() => setOpen(false)}>
                 <Home className="mr-2 h-5 w-5 text-blue-600" />
-                <span className="font-bold">AgentX Plus</span>
+                <span className="font-bold">SynapX Plus</span>
               </Link>
             </div>
             <nav className="mt-6 flex flex-col gap-4 px-2">
@@ -141,7 +141,7 @@ export function NavigationBar() {
         </Sheet>
         <Link href="/" className="mr-6 flex items-center space-x-2">
           <Home className="h-6 w-6 text-blue-600" />
-          <span className="hidden font-bold sm:inline-block">AgentX</span>
+          <span className="hidden font-bold sm:inline-block">SynapX</span>
         </Link>
         <div className="flex flex-1 items-center justify-between">
           <nav className="flex items-center space-x-6">

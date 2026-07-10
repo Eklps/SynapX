@@ -19,6 +19,7 @@ import { zhCN } from 'date-fns/locale'
 import { nanoid } from 'nanoid'
 import MultiModalUpload, { type ChatFile } from "@/components/multi-modal-upload"
 import MessageFileDisplay from "@/components/message-file-display"
+import { uploadSingleFile } from "@/lib/file-upload-service"
 
 interface ChatPanelProps {
   conversationId: string
@@ -262,6 +263,46 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
     }, 100)
+  }
+
+  // 处理粘贴：从剪贴板提取图片并上传（需多模态启用）
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    if (!multiModal) return // 未启用多模态时不处理图片粘贴
+    const items = e.clipboardData?.items
+    if (!items) return
+    const imageFiles: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) imageFiles.push(file)
+      }
+    }
+    if (imageFiles.length === 0) return
+
+    e.preventDefault() // 阻止默认粘贴行为（避免把图片当文本插入）
+    for (const file of imageFiles) {
+      const tempId = Date.now().toString() + Math.random().toString(36).substring(2, 6)
+      // 先添加临时占位，显示上传中
+      setUploadedFiles(prev => [...prev, {
+        id: tempId, name: file.name || 'pasted-image', type: file.type,
+        size: file.size, url: '', uploadProgress: 0
+      }])
+      try {
+        const result = await uploadSingleFile(file, (progress) => {
+          setUploadedFiles(prev => prev.map(f => f.id === tempId ? { ...f, uploadProgress: progress } : f))
+        })
+        setUploadedFiles(prev => prev.map(f => f.id === tempId
+          ? { ...f, url: result.url, uploadProgress: 100 } : f))
+      } catch (error) {
+        setUploadedFiles(prev => prev.filter(f => f.id !== tempId))
+        toast({
+          title: "文件上传失败",
+          description: error instanceof Error ? error.message : "请重试",
+          variant: "destructive"
+        })
+      }
+    }
   }
 
   // 处理发送消息
@@ -838,6 +879,7 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyPress}
+            onPaste={handlePaste}
             className="min-h-[56px] flex-1 resize-none overflow-hidden rounded-xl bg-white px-3 py-2 font-normal border-gray-200 shadow-sm focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-opacity-50"
             rows={Math.min(5, Math.max(2, input.split('\n').length))}
           />
