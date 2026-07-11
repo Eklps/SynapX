@@ -44,5 +44,17 @@ public enum MessageType {
     RAG_ANSWER_PROGRESS,
 
     /** RAG回答结束 */
-    RAG_ANSWER_END
+    RAG_ANSWER_END,
+
+    /** 普通 chat 思考开始（由 onPartialReasoning 触发） */
+    THINKING_START,
+
+    /** 普通 chat 思考增量 */
+    THINKING_PROGRESS,
+
+    /** 普通 chat 思考结束 */
+    THINKING_END,
+
+    /** 工具调用组结束（payload 字段携带 JSON 汇总：count、fileCount、toolNames） */
+    TOOL_CALL_GROUP_END
 }
