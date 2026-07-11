@@ -359,6 +359,24 @@ public abstract class AbstractMessageHandler {
         // 记录调用开始时间
         long startTime = System.currentTimeMillis();
 
+        // 思维链状态跟踪
+        final boolean[] thinkingStarted = {false};
+        final boolean[] thinkingEnded = {false};
+        final boolean[] hasThinkingProcess = {false};
+
+        // 工具调用累积
+        final java.util.concurrent.atomic.AtomicInteger toolCallCount = new java.util.concurrent.atomic.AtomicInteger(
+                0);
+        final java.util.concurrent.atomic.AtomicInteger fileViewCount = new java.util.concurrent.atomic.AtomicInteger(
+                0);
+        final java.util.List<String> toolNames = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        final StringBuilder thinkingContentBuilder = new StringBuilder();
+
+        // 判断工具名是否算"查看文件"
+        // 知识库检索、读文件类工具算；其他不算
+        java.util.function.Predicate<String> isFileViewTool = name -> name != null && (name.contains("knowledge")
+                || name.contains("search") || name.contains("file_read") || name.contains("read_file"));
+
         tokenStream.onError(throwable -> {
             // 策略B受控中断：静默处理，不向前端发送报错（SSE连接已由ChatSessionManager关闭）
             if ("USER_INTERRUPTED".equals(throwable.getMessage())) {
@@ -377,6 +395,17 @@ public abstract class AbstractMessageHandler {
             // 调用错误处理钩子
             onChatError(chatContext, ExecutionPhase.MODEL_CALL, throwable);
             onChatCompleted(chatContext, false, throwable.getMessage());
+        });
+
+        // 思维链处理
+        tokenStream.onPartialReasoning(reasoning -> {
+            hasThinkingProcess[0] = true;
+            if (!thinkingStarted[0]) {
+                transport.sendMessage(connection, AgentChatResponse.build("开始思考...", MessageType.THINKING_START));
+                thinkingStarted[0] = true;
+            }
+            thinkingContentBuilder.append(reasoning);
+            transport.sendMessage(connection, AgentChatResponse.build(reasoning, MessageType.THINKING_PROGRESS));
         });
 
         // 部分响应处理
@@ -398,6 +427,20 @@ public abstract class AbstractMessageHandler {
                 throw new RuntimeException("USER_INTERRUPTED");
             }
 
+            // 如果有思考过程但还没结束思考，先结束思考阶段
+            if (hasThinkingProcess[0] && !thinkingEnded[0]) {
+                transport.sendMessage(connection, AgentChatResponse.build("思考完成", MessageType.THINKING_END));
+                thinkingEnded[0] = true;
+            }
+
+            // 如果没有思考过程且还没开始过思考，先发送思考开始和结束
+            if (!hasThinkingProcess[0] && !thinkingStarted[0]) {
+                transport.sendMessage(connection, AgentChatResponse.build("开始思考...", MessageType.THINKING_START));
+                transport.sendMessage(connection, AgentChatResponse.build("思考完成", MessageType.THINKING_END));
+                thinkingStarted[0] = true;
+                thinkingEnded[0] = true;
+            }
+
             messageBuilder.get().append(reply);
             // 删除换行后消息为空字符串
             if (messageBuilder.get().toString().trim().isEmpty()) {
@@ -410,6 +453,40 @@ public abstract class AbstractMessageHandler {
 
         // 完整响应处理
         tokenStream.onCompleteResponse(chatResponse -> {
+
+            // 兜底：如果到结束还没发出 THINKING_END，补发一个
+            if (hasThinkingProcess[0] && !thinkingEnded[0]) {
+                transport.sendMessage(connection, AgentChatResponse.build("思考完成", MessageType.THINKING_END));
+                thinkingEnded[0] = true;
+            }
+
+            // 把思考内容、工具调用汇总写入 llmEntity.metadata（JSON），同时推流 TOOL_CALL_GROUP_END
+            try {
+                com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                java.util.LinkedHashMap<String, Object> meta = new java.util.LinkedHashMap<>();
+                if (thinkingContentBuilder.length() > 0) {
+                    meta.put("thinkingContent", thinkingContentBuilder.toString());
+                }
+                if (toolCallCount.get() > 0) {
+                    java.util.LinkedHashMap<String, Object> tcg = new java.util.LinkedHashMap<>();
+                    tcg.put("count", toolCallCount.get());
+                    tcg.put("fileCount", fileViewCount.get());
+                    tcg.put("toolNames", new java.util.ArrayList<>(toolNames));
+                    meta.put("toolCallGroup", tcg);
+
+                    // 推流：TOOL_CALL_GROUP_END，payload 携带同一份 JSON 供前端流式消费
+                    String payload = om.writeValueAsString(tcg);
+                    AgentChatResponse groupEnd = AgentChatResponse
+                            .buildEndMessage("执行了 " + toolCallCount.get() + " 个工具", MessageType.TOOL_CALL_GROUP_END);
+                    groupEnd.setPayload(payload);
+                    transport.sendMessage(connection, groupEnd);
+                }
+                if (!meta.isEmpty()) {
+                    llmEntity.setMetadata(om.writeValueAsString(meta));
+                }
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                logger.warn("构造 toolCallGroup metadata 失败: {}", e.getMessage());
+            }
 
             this.setMessageTokenCount(chatContext.getMessageHistory(), userEntity, llmEntity, chatResponse);
 
@@ -449,22 +526,16 @@ public abstract class AbstractMessageHandler {
 
         // 工具执行处理
         tokenStream.onToolExecuted(toolExecution -> {
-            if (!messageBuilder.get().isEmpty()) {
-                transport.sendMessage(connection, AgentChatResponse.buildEndMessage(MessageType.TEXT));
-                llmEntity.setContent(messageBuilder.get().toString());
-                messageDomainService.saveMessageAndUpdateContext(Collections.singletonList(llmEntity),
-                        chatContext.getContextEntity());
-                messageBuilder.set(new StringBuilder());
+            // 累加工具调用统计（不再单独存 toolMessage 到 DB，最终由 onCompleteResponse
+            // 一次性汇总写入 llmEntity.metadata 并推 TOOL_CALL_GROUP_END 给前端）
+            String toolName = toolExecution.request().name();
+            toolCallCount.incrementAndGet();
+            if (toolName != null) {
+                toolNames.add(toolName);
+                if (isFileViewTool.test(toolName)) {
+                    fileViewCount.incrementAndGet();
+                }
             }
-            String message = "执行工具：" + toolExecution.request().name();
-            MessageEntity toolMessage = createLlmMessage(chatContext);
-            toolMessage.setMessageType(MessageType.TOOL_CALL);
-            toolMessage.setContent(message);
-            messageDomainService.saveMessageAndUpdateContext(Collections.singletonList(toolMessage),
-                    chatContext.getContextEntity());
-
-            // 直接发送工具调用消息
-            transport.sendMessage(connection, AgentChatResponse.buildEndMessage(message, MessageType.TOOL_CALL));
 
             // 调用工具调用完成钩子
             ToolCallInfo toolCallInfo = buildToolCallInfo(toolExecution);
