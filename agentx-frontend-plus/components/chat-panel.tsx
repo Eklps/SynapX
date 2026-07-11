@@ -13,13 +13,14 @@ import { AgentSessionService } from "@/lib/agent-session-service"
 import { API_CONFIG, API_ENDPOINTS } from "@/lib/api-config"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MessageMarkdown } from "@/components/ui/message-markdown"
-import { MessageType, type Message as MessageInterface } from "@/types/conversation"
+import { MessageType, type Message as MessageInterface, type ToolCallGroup } from "@/types/conversation"
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { nanoid } from 'nanoid'
 import MultiModalUpload, { type ChatFile } from "@/components/multi-modal-upload"
 import MessageFileDisplay from "@/components/message-file-display"
 import { uploadSingleFile } from "@/lib/file-upload-service"
+import { ThinkingToolCallGroup } from "@/components/agent/ThinkingToolCallGroup"
 
 interface ChatPanelProps {
   conversationId: string
@@ -55,6 +56,7 @@ interface StreamData {
   timestamp: number
   messageType?: string // 消息类型
   files?: string[] // 新增：文件URL列表
+  payload?: string // 数据载荷，用于传递非文本内容（如 TOOL_CALL_GROUP_END 的 JSON 汇总）
 }
 
 // 定义消息类型为字符串字面量类型
@@ -85,6 +87,13 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
     content: "",
     type: MessageType.TEXT as MessageType
   });
+  // 思考内容累积（每个 assistant 回复内重置）
+  const messageThinkingAccumulator = useRef({
+    content: "",
+    isComplete: false,
+  });
+  // 工具调用汇总（每个 assistant 回复内重置）
+  const messageToolCallGroupAccumulator = useRef<ToolCallGroup | null>(null);
 
   // 在组件顶部添加状态来跟踪已完成的TEXT消息
   const [completedTextMessages, setCompletedTextMessages] = useState<Set<string>>(new Set());
@@ -98,6 +107,8 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
       content: "",
       type: MessageType.TEXT
     };
+    messageThinkingAccumulator.current = { content: "", isComplete: false };
+    messageToolCallGroupAccumulator.current = null;
     setCompletedTextMessages(new Set());
     messageSequenceNumber.current = 0;
     
@@ -464,11 +475,36 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
     
     // 获取消息类型，默认为TEXT
     const messageType = data.messageType as MessageType || MessageType.TEXT;
-    
+
+    // 处理思考链消息（累积到 messageThinkingAccumulator，不创建新消息）
+    if (messageType === MessageType.THINKING_START ||
+        messageType === MessageType.THINKING_PROGRESS ||
+        messageType === MessageType.THINKING_END) {
+      if (messageType === MessageType.THINKING_PROGRESS && data.content) {
+        messageThinkingAccumulator.current.content += data.content;
+      } else if (messageType === MessageType.THINKING_END) {
+        messageThinkingAccumulator.current.isComplete = true;
+      }
+      return;
+    }
+
+    // 处理 TOOL_CALL_GROUP_END（payload 携带汇总 JSON，累积到 messageToolCallGroupAccumulator）
+    if (messageType === MessageType.TOOL_CALL_GROUP_END) {
+      try {
+        const group: ToolCallGroup = data.payload
+          ? JSON.parse(data.payload)
+          : { count: 0, fileCount: 0, toolNames: [] };
+        messageToolCallGroupAccumulator.current = group;
+      } catch (e) {
+        console.warn("TOOL_CALL_GROUP_END payload 解析失败", e);
+      }
+      return;
+    }
+
     // 生成当前消息序列的唯一ID
     const currentMessageId = `assistant-${messageType}-${baseMessageId}-seq${messageSequenceNumber.current}`;
-    
- 
+
+
     
     // 处理消息内容（用于UI显示）
     const displayableTypes = [undefined, "TEXT", "TOOL_CALL"];
@@ -511,19 +547,26 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
     setMessages(prev => {
       // 检查消息是否已存在
       const messageIndex = prev.findIndex(msg => msg.id === messageId);
-      
+
+      // 取出当前累积的思考和工具调用汇总（仅在创建时合并，避免每次更新都重新塞空值）
+      const thinkingContent = messageThinkingAccumulator.current.content || undefined;
+      const isThinkingComplete = messageThinkingAccumulator.current.isComplete || undefined;
+      const toolCallGroup = messageToolCallGroupAccumulator.current || undefined;
+
       if (messageIndex >= 0) {
         // 消息已存在，只需更新内容
- 
         const newMessages = [...prev];
         newMessages[messageIndex] = {
           ...newMessages[messageIndex],
-          content: messageData.content
+          content: messageData.content,
+          // 一旦累积器里有值，后续每次更新都保留
+          thinkingContent: newMessages[messageIndex].thinkingContent ?? thinkingContent,
+          isThinkingComplete: newMessages[messageIndex].isThinkingComplete ?? isThinkingComplete,
+          toolCallGroup: newMessages[messageIndex].toolCallGroup ?? toolCallGroup,
         };
         return newMessages;
       } else {
         // 消息不存在，创建新消息
- 
         return [
           ...prev,
           {
@@ -531,12 +574,15 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
             role: "assistant",
             content: messageData.content,
             type: messageData.type,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            thinkingContent,
+            isThinkingComplete,
+            toolCallGroup,
           }
         ];
       }
     });
-    
+
     // 更新当前助手消息状态
     setCurrentAssistantMessage({ id: messageId, hasContent: true });
   }
@@ -594,11 +640,13 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
 
   // 重置消息累积器
   const resetMessageAccumulator = () => {
- 
+
     messageContentAccumulator.current = {
       content: "",
       type: MessageType.TEXT
     };
+    messageThinkingAccumulator.current = { content: "", isComplete: false };
+    messageToolCallGroupAccumulator.current = null;
   };
 
   // 处理按键事件
@@ -629,11 +677,12 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
   // 根据消息类型获取图标和文本
   const getMessageTypeInfo = (type: MessageType) => {
     switch (type) {
-      case MessageType.TOOL_CALL:
-        return {
-          icon: <Wrench className="h-5 w-5 text-blue-500" />,
-          text: '工具调用'
-        };
+      // 已废弃：工具调用现在折叠到 ThinkingToolCallGroup 中展示，不再单独渲染
+      // case MessageType.TOOL_CALL:
+      //   return {
+      //     icon: <Wrench className="h-5 w-5 text-blue-500" />,
+      //     text: '工具调用'
+      //   };
       case MessageType.TEXT:
       default:
         return {
@@ -745,7 +794,18 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
                               <MessageFileDisplay fileUrls={message.fileUrls} />
                             </div>
                           )}
-                          
+
+                          {/* 思考 + 工具调用折叠块（仅 assistant 消息） */}
+                          {(message.thinkingContent || message.toolCallGroup) && (
+                            <div className="mb-2">
+                              <ThinkingToolCallGroup
+                                thinkingContent={message.thinkingContent}
+                                isThinkingComplete={message.isThinkingComplete}
+                                toolCallGroup={message.toolCallGroup}
+                              />
+                            </div>
+                          )}
+
                           {/* 消息内容 */}
                           {message.content && (
                             <div className="p-3 rounded-lg">

@@ -101,7 +101,34 @@ export enum MessageType {
   /**
    * RAG回答结束消息
    */
-  RAG_ANSWER_END = "RAG_ANSWER_END"
+  RAG_ANSWER_END = "RAG_ANSWER_END",
+
+  /**
+   * 普通 chat 思考开始
+   */
+  THINKING_START = "THINKING_START",
+
+  /**
+   * 普通 chat 思考增量
+   */
+  THINKING_PROGRESS = "THINKING_PROGRESS",
+
+  /**
+   * 普通 chat 思考结束
+   */
+  THINKING_END = "THINKING_END",
+
+  /**
+   * 工具调用组结束（payload 携带 JSON 汇总）
+   */
+  TOOL_CALL_GROUP_END = "TOOL_CALL_GROUP_END"
+}
+
+// 工具调用组汇总（来自后端 metadata 或流式 TOOL_CALL_GROUP_END）
+export interface ToolCallGroup {
+  count: number
+  fileCount: number
+  toolNames: string[]
 }
 
 // 消息接口
@@ -116,6 +143,9 @@ export interface Message {
   tasks?: any[] // 任务列表
   taskId?: string // 任务ID
   fileUrls?: string[] // 附件文件URL列表
+  thinkingContent?: string // 思考内容（来自后端 THINKING_PROGRESS 累积或 metadata）
+  isThinkingComplete?: boolean // 思考是否已完成
+  toolCallGroup?: ToolCallGroup // 工具调用汇总
 }
 
 // 创建会话请求参数
