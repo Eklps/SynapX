@@ -364,6 +364,10 @@ public abstract class AbstractMessageHandler {
         final boolean[] thinkingEnded = {false};
         final boolean[] hasThinkingProcess = {false};
 
+        // 流式 <think>...</think> 标签状态机（用于 LangChain4j 未能自动剥离 <think> 的场景）
+        final boolean[] inThinkTag = {false};
+        final StringBuilder tagParseBuffer = new StringBuilder();
+
         // 工具调用累积
         final java.util.concurrent.atomic.AtomicInteger toolCallCount = new java.util.concurrent.atomic.AtomicInteger(
                 0);
@@ -427,28 +431,88 @@ public abstract class AbstractMessageHandler {
                 throw new RuntimeException("USER_INTERRUPTED");
             }
 
-            // 如果有思考过程但还没结束思考，先结束思考阶段
-            if (hasThinkingProcess[0] && !thinkingEnded[0]) {
-                transport.sendMessage(connection, AgentChatResponse.build("思考完成", MessageType.THINKING_END));
-                thinkingEnded[0] = true;
+            // 把 token 追加到状态机 buffer
+            tagParseBuffer.append(reply);
+
+            // 状态机循环：剥离 <think>...</think> 标签，分别推送给 THINKING 流和正文 TEXT 流
+            while (true) {
+                String text = tagParseBuffer.toString();
+                if (!inThinkTag[0]) {
+                    // 当前在正文模式，找 <think> 起点
+                    int thinkStart = text.indexOf("<think>");
+                    if (thinkStart < 0) {
+                        // 没找到。保留末尾 7 字符（"<think>".length()）防跨 token 切碎
+                        if (text.length() > 7) {
+                            String sendable = text.substring(0, text.length() - 7);
+                            messageBuilder.get().append(sendable);
+                            // 兜底：模型没 <think> 也没 reasoning API 时，补发 THINKING_START/END
+                            if (!hasThinkingProcess[0] && !thinkingStarted[0]) {
+                                transport.sendMessage(connection,
+                                        AgentChatResponse.build("开始思考...", MessageType.THINKING_START));
+                                transport.sendMessage(connection,
+                                        AgentChatResponse.build("思考完成", MessageType.THINKING_END));
+                                thinkingStarted[0] = true;
+                                thinkingEnded[0] = true;
+                                hasThinkingProcess[0] = true;
+                            }
+                            transport.sendMessage(connection, AgentChatResponse.build(sendable, MessageType.TEXT));
+                            tagParseBuffer.setLength(0);
+                            tagParseBuffer.append(text.substring(text.length() - 7));
+                        }
+                        break;
+                    }
+                    // 找到 <think>：先发之前的正文，再切到 thinking 模式
+                    String before = text.substring(0, thinkStart);
+                    if (!before.isEmpty()) {
+                        messageBuilder.get().append(before);
+                        transport.sendMessage(connection, AgentChatResponse.build(before, MessageType.TEXT));
+                    }
+                    if (!thinkingStarted[0]) {
+                        transport.sendMessage(connection,
+                                AgentChatResponse.build("开始思考...", MessageType.THINKING_START));
+                        thinkingStarted[0] = true;
+                    }
+                    hasThinkingProcess[0] = true;
+                    inThinkTag[0] = true;
+                    // buffer 替换为 <think> 之后的内容
+                    tagParseBuffer.setLength(0);
+                    tagParseBuffer.append(text.substring(thinkStart + "<think>".length()));
+                } else {
+                    // 当前在 thinking 模式，找 </think> 终点
+                    int thinkEnd = text.indexOf("</think>");
+                    if (thinkEnd < 0) {
+                        // 没找到。保留末尾 8 字符（"</think>".length()）防跨 token 切碎
+                        if (text.length() > 8) {
+                            String sendable = text.substring(0, text.length() - 8);
+                            thinkingContentBuilder.append(sendable);
+                            transport.sendMessage(connection,
+                                    AgentChatResponse.build(sendable, MessageType.THINKING_PROGRESS));
+                            tagParseBuffer.setLength(0);
+                            tagParseBuffer.append(text.substring(text.length() - 8));
+                        }
+                        break;
+                    }
+                    // 找到 </think>：把 thinking 内容推完，发 THINKING_END，切回正文
+                    String thinkPart = text.substring(0, thinkEnd);
+                    if (!thinkPart.isEmpty()) {
+                        thinkingContentBuilder.append(thinkPart);
+                        transport.sendMessage(connection,
+                                AgentChatResponse.build(thinkPart, MessageType.THINKING_PROGRESS));
+                    }
+                    transport.sendMessage(connection, AgentChatResponse.build("思考完成", MessageType.THINKING_END));
+                    thinkingEnded[0] = true;
+                    inThinkTag[0] = false;
+                    // buffer 替换为 </think> 之后的内容（如果有）
+                    String rest = text.substring(thinkEnd + "</think>".length());
+                    tagParseBuffer.setLength(0);
+                    tagParseBuffer.append(rest);
+                }
             }
 
-            // 如果没有思考过程且还没开始过思考，先发送思考开始和结束
-            if (!hasThinkingProcess[0] && !thinkingStarted[0]) {
-                transport.sendMessage(connection, AgentChatResponse.build("开始思考...", MessageType.THINKING_START));
-                transport.sendMessage(connection, AgentChatResponse.build("思考完成", MessageType.THINKING_END));
-                thinkingStarted[0] = true;
-                thinkingEnded[0] = true;
-            }
-
-            messageBuilder.get().append(reply);
-            // 删除换行后消息为空字符串
-            if (messageBuilder.get().toString().trim().isEmpty()) {
+            // 全空消息不推送
+            if (messageBuilder.get().toString().trim().isEmpty() && thinkingContentBuilder.length() == 0) {
                 return;
             }
-
-            // 直接发送消息，transport内部处理连接异常
-            transport.sendMessage(connection, AgentChatResponse.build(reply, MessageType.TEXT));
         });
 
         // 完整响应处理
