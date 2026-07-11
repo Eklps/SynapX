@@ -346,6 +346,9 @@ public class ConversationAppService {
             MessageEntity messageEntity = new MessageEntity();
             messageEntity.setRole(Role.USER);
             messageEntity.setFileUrls(fileUrls);
+            // 显式设置 createdAt,避免后续按 createdAt 排序时出现 NPE
+            // (MessageEntity 重新声明了 createdAt 字段,未带 FieldFill.INSERT 自动填充)
+            messageEntity.setCreatedAt(LocalDateTime.now());
             messageEntities.add(messageEntity);
         }
 

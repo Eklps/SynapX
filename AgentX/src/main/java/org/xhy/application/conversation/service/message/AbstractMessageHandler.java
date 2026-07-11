@@ -279,10 +279,8 @@ public abstract class AbstractMessageHandler {
 
             // 5. 构造 ChatResponse 以复用后续统一的 token/计费/钩子逻辑。
             // 注意：AiServices 的 String 返回不带 tokenUsage，同步+工具路径的 token 统计暂不可得（降级为 0）。
-            ChatResponse chatResponse = ChatResponse.builder()
-                    .aiMessage(new AiMessage(answer))
-                    .tokenUsage(new dev.langchain4j.model.output.TokenUsage(0, 0))
-                    .build();
+            ChatResponse chatResponse = ChatResponse.builder().aiMessage(new AiMessage(answer))
+                    .tokenUsage(new dev.langchain4j.model.output.TokenUsage(0, 0)).build();
 
             // 6. 处理响应 - 设置消息token
             this.setMessageTokenCount(chatContext.getMessageHistory(), userEntity, llmEntity, chatResponse);
@@ -340,8 +338,9 @@ public abstract class AbstractMessageHandler {
             messageDomainService.saveMessage(Collections.singletonList(summary));
         }
         List<String> activeMessages = chatContext.getMessageHistory().stream().filter(Objects::nonNull)
-                .sorted(Comparator.comparing(MessageEntity::getCreatedAt)).map(MessageEntity::getId)
-                .collect(Collectors.toList());
+                .sorted(Comparator.comparing(MessageEntity::getCreatedAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(MessageEntity::getId).collect(Collectors.toList());
         contextEntity.setActiveMessages(activeMessages);
         // 保存用户消息
         messageDomainService.saveMessageAndUpdateContext(Collections.singletonList(userEntity), contextEntity);
@@ -380,7 +379,6 @@ public abstract class AbstractMessageHandler {
             onChatCompleted(chatContext, false, throwable.getMessage());
         });
 
-
         // 部分响应处理
         tokenStream.onPartialResponse(reply -> {
             // 【策略B：立即短路】检测中断信号，需在吸收每个Token时判断
@@ -388,8 +386,8 @@ public abstract class AbstractMessageHandler {
             if (strategy == InterruptStrategy.IMMEDIATE
                     && chatSessionManager.isSessionInterrupted(chatContext.getSessionId())) {
                 String partialContent = messageBuilder.get().toString();
-                logger.info("策略B：检测到中断信号，准备短路中止: sessionId={}, 已生成内容长度={}",
-                        chatContext.getSessionId(), partialContent.length());
+                logger.info("策略B：检测到中断信号，准备短路中止: sessionId={}, 已生成内容长度={}", chatContext.getSessionId(),
+                        partialContent.length());
                 // 持久化已生成的部分内容（如果有的话）
                 if (!partialContent.isBlank()) {
                     llmEntity.setContent(partialContent + "[已中断]");
@@ -533,10 +531,10 @@ public abstract class AbstractMessageHandler {
     }
 
     /** 构建同步Agent（与 {@link #buildStreamingAgent} 对应，使用同步 ChatModel）。
-     * <p>同步路径必须通过 AiServices 包装才能让 ToolProvider 生效——直接调用
-     * {@link ChatModel#chat(java.util.List)} 不会声明/执行工具。 */
-    protected SyncAgent buildSyncAgent(ChatModel model, MessageWindowChatMemory memory,
-            ToolProvider toolProvider, AgentEntity agent) {
+     * <p>
+     * 同步路径必须通过 AiServices 包装才能让 ToolProvider 生效——直接调用 {@link ChatModel#chat(java.util.List)} 不会声明/执行工具。 */
+    protected SyncAgent buildSyncAgent(ChatModel model, MessageWindowChatMemory memory, ToolProvider toolProvider,
+            AgentEntity agent) {
 
         Map<ToolSpecification, ToolExecutor> builtInTools = builtInToolRegistry.createToolsForAgent(agent);
 
