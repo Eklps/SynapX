@@ -14,6 +14,7 @@ import {
   getSessionExecutionDetailsWithToast,
   SessionExecutionDetail
 } from "@/lib/agent-trace-service"
+import { ThinkingToolCallGroup, type ToolCallGroup } from "@/components/agent/ThinkingToolCallGroup"
 
 
 
@@ -268,6 +269,25 @@ export default function TraceDetailPage() {
           会话ID: {sessionId} | 共 {executionDetails.length} 条执行记录
         </p>
       </div>
+
+      {/* 工具调用汇总（折叠块，仅作为快速索引，详细参数/结果在下方时间线查看） */}
+      {(() => {
+        const toolNames: string[] = executionDetails
+          .filter(d => d.stepType === 'TOOL_CALL' && d.toolName)
+          .map(d => d.toolName as string);
+        if (toolNames.length === 0) return null;
+        const fileCount = toolNames.filter(n => n.includes('knowledge') || n.includes('file_read')).length;
+        const group: ToolCallGroup = {
+          count: toolNames.length,
+          fileCount,
+          toolNames,
+        };
+        return (
+          <div className="max-w-4xl mx-auto mb-4">
+            <ThinkingToolCallGroup toolCallGroup={group} />
+          </div>
+        );
+      })()}
 
       {/* 执行步骤日志 - 时间线样式 */}
       <div className="space-y-6 max-w-4xl mx-auto">
