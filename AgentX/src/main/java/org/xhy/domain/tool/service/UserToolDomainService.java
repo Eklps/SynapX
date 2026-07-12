@@ -4,10 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.xhy.domain.tool.model.UserToolEntity;
 import org.xhy.domain.tool.repository.UserToolRepository;
-import org.xhy.infrastructure.exception.BusinessException;
 import org.xhy.interfaces.dto.tool.request.QueryToolRequest;
 
 import java.util.*;
@@ -17,6 +18,8 @@ import java.util.stream.Collectors;
 /** 用户已安装工具 service */
 @Service
 public class UserToolDomainService {
+
+    private static final Logger log = LoggerFactory.getLogger(UserToolDomainService.class);
 
     private final UserToolRepository userToolRepository;
 
@@ -68,10 +71,15 @@ public class UserToolDomainService {
         return toolInstallMap;
     }
 
-    /** 检查工具版本是否已安装
+    /** 获取用户已安装的工具。
+     * <p>
+     * 软降级：若 {@code toolIds} 中有未安装的（被删除/未安装），记 warn 日志后跳过这些 ID，
+     * 不再抛异常阻塞 chat 入口——否则一个 agent 配置残留的旧 toolId 会让整个 agent 无法对话。
+     * </p>
      *
      * @param toolIds 工具版本id列表
-     * @param userId 用户id */
+     * @param userId 用户id
+     * @return 实际已安装的工具列表（缺失的会被过滤掉） */
     public List<UserToolEntity> getInstallTool(List<String> toolIds, String userId) {
         if (toolIds == null || toolIds.isEmpty()) {
             return new ArrayList<>();
@@ -80,15 +88,14 @@ public class UserToolDomainService {
         List<UserToolEntity> userToolEntities = userToolRepository.selectList(Wrappers.<UserToolEntity>lambdaQuery()
                 .in(UserToolEntity::getToolId, toolIds).eq(UserToolEntity::getUserId, userId));
 
-        Map<String, UserToolEntity> userToolMap = userToolEntities.stream()
-                .collect(Collectors.toMap(UserToolEntity::getToolId, Function.identity()));
-
-        toolIds.forEach(toolId -> {
-            UserToolEntity userToolEntity = userToolMap.get(toolId);
-            if (userToolEntity == null) {
-                throw new BusinessException("使用的工具不存在");
-            }
-        });
+        // 软降级：缺失的 toolId 记 warn 后过滤掉，避免阻塞 chat
+        Set<String> installedIds = userToolEntities.stream()
+                .map(UserToolEntity::getToolId).collect(Collectors.toSet());
+        List<String> missing = toolIds.stream()
+                .filter(id -> !installedIds.contains(id)).collect(Collectors.toList());
+        if (!missing.isEmpty()) {
+            log.warn("Agent 配置的工具未安装或已被删除，已自动跳过: missing={}, userId={}", missing, userId);
+        }
         return userToolEntities;
     }
 

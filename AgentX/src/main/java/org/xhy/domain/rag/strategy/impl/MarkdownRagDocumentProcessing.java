@@ -107,7 +107,24 @@ public class MarkdownRagDocumentProcessing extends AbstractDocumentProcessingStr
 
             // 下载文件内容
             log.info("下载Markdown文档: {}", fileDetailEntity.getFilename());
-            return fileStorageService.download(fileDetailEntity.getUrl()).bytes();
+            try {
+                byte[] bytes = fileStorageService.download(fileDetailEntity.getUrl()).bytes();
+                if (bytes != null && bytes.length > 0) {
+                    return bytes;
+                }
+                log.warn("x-file-storage 返回空字节,fallback 到本地路径 /app/storage/{}", fileDetailEntity.getFilename());
+            } catch (Exception downloadEx) {
+                log.warn("x-file-storage 下载失败({}),fallback 到本地路径 /app/storage/{}", downloadEx.getMessage(),
+                        fileDetailEntity.getFilename());
+            }
+
+            // 兜底:容器内 /app/storage 是 named volume,直接按 filename 读本地文件
+            java.nio.file.Path localPath = java.nio.file.Paths.get("/app/storage", fileDetailEntity.getFilename());
+            if (java.nio.file.Files.exists(localPath)) {
+                return java.nio.file.Files.readAllBytes(localPath);
+            }
+            log.error("本地文件也不存在: {}", localPath);
+            return new byte[0];
 
         } catch (Exception e) {
             log.error("下载Markdown文件失败: {}", ragDocSyncOcrMessage.getFileId(), e);

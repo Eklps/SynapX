@@ -49,12 +49,13 @@ public class FileDetailDomainService {
             throw new BusinessException("数据集ID不能为空");
         }
 
-        final FileInfo upload = fileStorageService.of(fileDetailEntity.getMultipartFile())
-                .setMetadata(Map.of("dataset", fileDetailEntity.getDataSetId(), "userid", fileDetailEntity.getUserId()))
-                .upload();
+        // 注意:local 平台(x-file-storage 2.2.0)对 setMetadata 和 setUserMetadata 的写入路径均会触发
+        // platform=local-1 的 Metadata 校验失败。改为先上传到存储,再用返回值关联到数据集/用户。
+        final FileInfo upload = fileStorageService.of(fileDetailEntity.getMultipartFile()).upload();
 
         // 设置文件基本信息
-        fileDetailEntity.setId(upload.getId());
+        // x-file-storage 的 upload.getId() 在 storage 缓存中可能重复,这里使用 fileDetailEntity 自己的 id
+        // (由调用方在 FileDetailAssembler 中生成),以保证 file_detail 主键唯一。
         fileDetailEntity.setUrl(upload.getUrl());
         fileDetailEntity.setSize(upload.getSize());
         fileDetailEntity.setFilename(upload.getFilename());
@@ -71,7 +72,7 @@ public class FileDetailDomainService {
         stateMachineService.processFileState(fileDetailEntity);
 
         // 保存文件记录
-        // fileDetailRepository.insert(fileDetailEntity);
+        fileDetailRepository.insert(fileDetailEntity);
         return fileDetailEntity;
     }
 

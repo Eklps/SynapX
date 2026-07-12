@@ -159,8 +159,7 @@ public class TaskExecutionHandler extends AbstractAgentHandler {
         subTask.setTaskResult("执行失败(已重试" + maxRetries + "次): " + lastException.getMessage());
         taskManager.updateTaskStatus(subTask, TaskStatus.FAILED);
 
-        context.sendEndMessage(
-                "任务 '" + taskName + "' 执行失败(已重试" + maxRetries + "次): " + lastException.getMessage(),
+        context.sendEndMessage("任务 '" + taskName + "' 执行失败(已重试" + maxRetries + "次): " + lastException.getMessage(),
                 MessageType.TEXT);
 
         // 失败结果仍然写入，保证工作流继续

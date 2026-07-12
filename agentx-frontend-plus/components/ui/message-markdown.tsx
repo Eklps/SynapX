@@ -4,10 +4,11 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
-import { Copy } from 'lucide-react';
+import { Copy, ImageOff } from 'lucide-react';
 import { useCopy } from '@/hooks/use-copy';
 import { CodeBlock } from '@/components/ui/code-block';
 import { cn } from '@/lib/utils';
+import { isErrorMessage } from '@/lib/message-utils';
 
 interface MessageMarkdownProps {
   content: string;
@@ -16,16 +17,6 @@ interface MessageMarkdownProps {
   isError?: boolean;
   className?: string;
 }
-
-// 检测是否为错误消息
-const isErrorMessage = (content: string): boolean => {
-  const errorKeywords = [
-    '错误', '失败', '无法', '未配置', '抱歉', 
-    '出现了错误', '请重试', '处理失败', '未找到',
-    '不存在', '配置错误', '连接失败', '预览出错:'
-  ];
-  return errorKeywords.some(keyword => content.includes(keyword));
-};
 
 // 预处理文本内容，标准化反引号和特殊字符
 const preprocessContent = (content: string): string => {
@@ -89,9 +80,38 @@ export function MessageMarkdown({
           "prose-pre:bg-white prose-pre:border prose-pre:border-gray-200 prose-pre:text-gray-900",
           shouldShowAsError && "text-destructive"
         )}>
-          <ReactMarkdown 
+          <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
+              img: ({ src, alt, ...props }: any) => {
+                const srcStr = typeof src === 'string' ? src : ''
+                // blob:/data: 是浏览器本地/内存协议，跨刷新/跨标签页不可访问，
+                // 渲染必失败。主动降级避免用户看到"Unknown size"碎图
+                if (/^(blob|data):/.test(srcStr)) {
+                  return (
+                    <span className="inline-flex items-center gap-1.5 my-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded text-sm text-gray-500">
+                      <ImageOff className="h-3.5 w-3.5" />
+                      <span>{alt || '图片（不可访问）'}</span>
+                    </span>
+                  )
+                }
+                return (
+                  <img
+                    src={src}
+                    alt={alt}
+                    loading="lazy"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement
+                      target.style.display = 'none'
+                      const parent = target.parentElement
+                      if (parent) {
+                        parent.innerHTML = '<span class="inline-block px-2 py-1 text-sm text-gray-500">[图片加载失败]</span>'
+                      }
+                    }}
+                    {...props}
+                  />
+                )
+              },
               code: ({ inline, children, className, ...props }: any) => {
  
                 

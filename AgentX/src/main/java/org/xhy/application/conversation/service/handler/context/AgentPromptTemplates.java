@@ -10,7 +10,20 @@ public class AgentPromptTemplates {
     private static final String SUMMARY_PREFIX = "以下是用户历史消息的摘要，请仅作为参考，用户没有提起则不要回答摘要中的内容：\\n";
 
     // 会话重命名提示词
-    private static final String START_CONVERSATION_PROMPT = "你是一个会话助手，请根据用户的消息生成一个简洁的会话标题。生成的内容纯文本，不要有标点符号";
+    private static final String START_CONVERSATION_PROMPT =
+            "你是一个会话标题生成器。根据用户的首条消息生成一个 8-15 字的中文标题。\n" +
+            "严格规则：\n" +
+            "1) 只回标题文本本身，不要任何前后解释、不要引号、不要书名号、不要前缀（如\"标题：\"）\n" +
+            "2) 不要使用标点符号（句号/逗号/问号/感叹号/冒号等）\n" +
+            "3) 长度严格 8-15 个汉字之间\n" +
+            "4) 优先用名词短语概括用户问的主题，不要逐字复述用户消息\n" +
+            "示例：\n" +
+            "用户：帮我写一首关于秋天的诗\n" +
+            "标题：秋日即景\n" +
+            "用户：Python 怎么读 csv 文件\n" +
+            "标题：Python读取CSV\n" +
+            "用户：今天北京天气怎么样\n" +
+            "标题：北京今日天气";
 
     public static String getStartConversationPrompt() {
         return START_CONVERSATION_PROMPT;

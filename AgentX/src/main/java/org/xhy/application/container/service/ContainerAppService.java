@@ -453,9 +453,9 @@ public class ContainerAppService {
     }
 
     /** 创建用户数据卷目录
-     * <p>返回 Docker named volume 名称（无前导斜杠），由 Docker daemon 在容器创建时自动创建。
-     * 改用 named volume 而非 bind mount，解决 Docker-in-Docker 场景下后端容器内路径
-     * 对宿主机 Docker daemon 不可见导致 bind mount 失效的问题。 */
+     * <p>
+     * 返回 Docker named volume 名称（无前导斜杠），由 Docker daemon 在容器创建时自动创建。 改用 named volume 而非 bind mount，解决 Docker-in-Docker
+     * 场景下后端容器内路径 对宿主机 Docker daemon 不可见导致 bind mount 失效的问题。 */
     private String createUserVolumeDirectory(String userId) {
         return "mcp-user-" + userId;
     }
@@ -658,7 +658,8 @@ public class ContainerAppService {
     }
 
     /** 创建审核容器数据卷目录
-     * <p>返回 Docker named volume 名称，详见 {@link #createUserVolumeDirectory}。 */
+     * <p>
+     * 返回 Docker named volume 名称，详见 {@link #createUserVolumeDirectory}。 */
     private String createReviewVolumeDirectory() {
         return "mcp-review-system";
     }

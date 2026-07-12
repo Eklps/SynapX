@@ -205,6 +205,11 @@ public class EmbeddingDomainService implements MetadataConstant {
         final String vectorId = ragDocSyncStorageMessage.getId();
         final FileDetailEntity fileDetailEntity = fileDetailRepository.selectById(ragDocSyncStorageMessage.getFileId());
 
+        // 兜底:若消息中 userId 丢失(MQ 链路上有 bug),从 file_detail 表里取
+        if (ragDocSyncStorageMessage.getUserId() == null && fileDetailEntity != null) {
+            ragDocSyncStorageMessage.setUserId(fileDetailEntity.getUserId());
+        }
+
         // 使用消息中的翻译后内容，而不是从数据库读取原文
         final String content = ragDocSyncStorageMessage.getContent();
 

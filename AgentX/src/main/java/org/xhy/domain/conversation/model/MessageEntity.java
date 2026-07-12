@@ -6,6 +6,7 @@ import org.xhy.domain.conversation.constant.Role;
 import org.xhy.infrastructure.converter.ListConverter;
 import org.xhy.infrastructure.converter.MessageTypeConverter;
 import org.xhy.infrastructure.converter.RoleConverter;
+import org.xhy.infrastructure.converter.StringJsonbConverter;
 import org.xhy.infrastructure.entity.BaseEntity;
 
 import java.time.LocalDateTime;
@@ -56,8 +57,8 @@ public class MessageEntity extends BaseEntity {
     @TableField("model")
     private String model;
 
-    /** 消息元数据 */
-    @TableField("metadata")
+    /** 消息元数据（DB 列是 jsonb，通过 StringJsonbConverter 在写入时包成 PGobject） */
+    @TableField(value = "metadata", typeHandler = StringJsonbConverter.class)
     private String metadata;
 
     @TableField(value = "file_urls", typeHandler = ListConverter.class)

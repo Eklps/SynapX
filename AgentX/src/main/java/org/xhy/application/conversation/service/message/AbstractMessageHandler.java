@@ -25,6 +25,7 @@ import org.xhy.domain.conversation.constant.MessageType;
 import org.xhy.domain.conversation.constant.Role;
 import org.xhy.domain.conversation.model.ContextEntity;
 import org.xhy.domain.conversation.model.MessageEntity;
+import java.util.regex.Pattern;
 import org.xhy.domain.conversation.service.MessageDomainService;
 import org.xhy.domain.conversation.service.SessionDomainService;
 import org.xhy.domain.llm.model.HighAvailabilityResult;
@@ -42,6 +43,7 @@ import org.xhy.domain.memory.model.MemoryResult;
 import org.xhy.domain.user.service.AccountDomainService;
 import org.xhy.infrastructure.exception.BusinessException;
 import org.xhy.infrastructure.llm.LLMServiceFactory;
+import org.xhy.infrastructure.llm.util.MultimodalMessageFactory;
 import org.xhy.infrastructure.transport.MessageTransport;
 import org.xhy.infrastructure.transport.SseEmitterUtils;
 import org.xhy.application.billing.service.BillingService;
@@ -82,10 +84,15 @@ public abstract class AbstractMessageHandler {
     protected final BillingService billingService;
     protected final AccountDomainService accountDomainService;
     protected final ChatSessionManager chatSessionManager;
+    protected final MultimodalMessageFactory multimodalMessageFactory;
     @Autowired
     protected MemoryDomainService memoryDomainService;
     @Autowired
     protected MemoryExtractorService memoryExtractorService;
+    @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("memoryTaskExecutor")
+    /** Spring 任务执行器：替代裸线程执行 fire-and-forget 任务（如 smartRenameSession） */
+    protected org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor taskExecutor;
     // 无需事件或单独服务，直接调用异步方法
     // 记忆注入常量（默认开启）
     private static final String MEMORY_SECTION_TITLE = "[记忆要点]";
@@ -94,7 +101,8 @@ public abstract class AbstractMessageHandler {
             HighAvailabilityDomainService highAvailabilityDomainService, SessionDomainService sessionDomainService,
             UserSettingsDomainService userSettingsDomainService, LLMDomainService llmDomainService,
             BuiltInToolRegistry builtInToolRegistry, BillingService billingService,
-            AccountDomainService accountDomainService, ChatSessionManager chatSessionManager) {
+            AccountDomainService accountDomainService, ChatSessionManager chatSessionManager,
+            MultimodalMessageFactory multimodalMessageFactory) {
         this.llmServiceFactory = llmServiceFactory;
         this.messageDomainService = messageDomainService;
         this.highAvailabilityDomainService = highAvailabilityDomainService;
@@ -105,6 +113,7 @@ public abstract class AbstractMessageHandler {
         this.billingService = billingService;
         this.accountDomainService = accountDomainService;
         this.chatSessionManager = chatSessionManager;
+        this.multimodalMessageFactory = multimodalMessageFactory;
     }
 
     /** 处理对话的模板方法
@@ -251,6 +260,9 @@ public abstract class AbstractMessageHandler {
         // 创建流式Agent
         Agent agent = buildStreamingAgent(streamingClient, memory, toolProvider, chatContext.getAgent());
 
+        // 当前轮多模态：把图片注入 memory（langchain4j 此版本 AiServices 不支持 UserMessage 入参）
+        multimodalMessageFactory.addCurrentTurnImages(memory, chatContext.getFileUrls());
+
         // 使用现有的流式处理逻辑
         processChat(agent, connection, transport, chatContext, userEntity, llmEntity);
     }
@@ -275,6 +287,8 @@ public abstract class AbstractMessageHandler {
             // 直接调用 syncClient.chat(messages) 不会声明/执行工具。
             // 把已有人工智能记忆（含历史）装载进 AiServices，由其内部处理消息组装与工具执行循环。
             SyncAgent syncAgent = buildSyncAgent(syncClient, memory, toolProvider, chatContext.getAgent());
+            // 当前轮多模态：把图片注入 memory，文本走 String 入口
+            multimodalMessageFactory.addCurrentTurnImages(memory, chatContext.getFileUrls());
             String answer = syncAgent.chat(chatContext.getUserMessage());
 
             // 5. 构造 ChatResponse 以复用后续统一的 token/计费/钩子逻辑。
@@ -354,6 +368,8 @@ public abstract class AbstractMessageHandler {
         this.saveMessageAndUpdateContext(chatContext, userEntity);
 
         AtomicReference<StringBuilder> messageBuilder = new AtomicReference<>(new StringBuilder());
+        // 当前轮的图片已由 processStreamingChat 注入 memory，这里文本走 String 入口
+        // （AiServices 不支持 UserMessage 入参，详见 MultimodalMessageFactory#addCurrentTurnImages）
         TokenStream tokenStream = agent.chat(chatContext.getUserMessage());
 
         // 记录调用开始时间
@@ -386,6 +402,16 @@ public abstract class AbstractMessageHandler {
             if ("USER_INTERRUPTED".equals(throwable.getMessage())) {
                 logger.info("会话已被用户主动中断（策略B），部分内容已持久化: sessionId={}", chatContext.getSessionId());
                 return;
+            }
+            // 兜底保存 llmEntity：把"AI 回复失败"留痕，避免刷新后看起来像 AI 没说任何话
+            try {
+                llmEntity.setContent("[AI 回复失败] " + throwable.getMessage());
+                llmEntity.setTokenCount(0);
+                llmEntity.setBodyTokenCount(0);
+                messageDomainService.saveMessageAndUpdateContext(Collections.singletonList(llmEntity),
+                        chatContext.getContextEntity());
+            } catch (Exception saveEx) {
+                logger.error("兜底保存失败 AI 消息时出错: sessionId={}", chatContext.getSessionId(), saveEx);
             }
             // 直接发送错误消息，transport内部处理连接异常
             transport.sendMessage(connection,
@@ -628,7 +654,10 @@ public abstract class AbstractMessageHandler {
             MessageEntity llmEntity, ChatResponse chatResponse) {
         llmEntity.setTokenCount(chatResponse.tokenUsage().outputTokenCount());
         llmEntity.setBodyTokenCount(chatResponse.tokenUsage().outputTokenCount());
-        llmEntity.setContent(chatResponse.aiMessage().text());
+        // 落库前剥离 <think>...</think> 段：避免原始模型输出（含思考链）污染 DB，
+        // 导致刷新页面后 ReactMarkdown 把 think 标签当正文渲染。
+        // 思考内容已单独存进 llmEntity.metadata 的 thinkingContent 字段。
+        llmEntity.setContent(stripThinkTags(chatResponse.aiMessage().text()));
         int bodyTokenSum = 0;
         if (CollectionUtil.isNotEmpty(historyMessages)) {
             bodyTokenSum = historyMessages.stream().mapToInt(MessageEntity::getBodyTokenCount).sum();
@@ -732,13 +761,7 @@ public abstract class AbstractMessageHandler {
         for (MessageEntity messageEntity : messageHistory) {
             // 注意不要重复发送摘要消息
             if (messageEntity.isUserMessage()) {
-                List<String> fileUrls = messageEntity.getFileUrls();
-                for (String fileUrl : fileUrls) {
-                    memory.add(UserMessage.from(ImageContent.from(fileUrl)));
-                }
-                if (!StringUtils.isEmpty(messageEntity.getContent())) {
-                    memory.add(new UserMessage(messageEntity.getContent()));
-                }
+                memory.add(multimodalMessageFactory.buildUserMessageFromHistory(messageEntity));
             } else if (messageEntity.isAIMessage()) {
                 memory.add(new AiMessage(messageEntity.getContent()));
             } else if (messageEntity.isSystemMessage()) {
@@ -783,36 +806,102 @@ public abstract class AbstractMessageHandler {
 
     // 智能重命名会话
     protected void smartRenameSession(ChatContext chatContext) {
-        Thread thread = new Thread(() -> {
-            // 获取会话 id
-            String sessionId = chatContext.getSessionId();
-            // 是否是首次对话
-            boolean isFirstConversation = messageDomainService.isFirstConversation(sessionId);
-            // 如果首次对话，则重命名会话
-            if (isFirstConversation) {
-                // 调用用户默认模型进行智能会话名称
-                String userId = chatContext.getUserId();
-                String userDefaultModelId = userSettingsDomainService.getUserDefaultModelId(userId);
-                ModelEntity model = llmDomainService.getModelById(userDefaultModelId);
-                // 4. 获取用户降级配置
-                List<String> fallbackChain = userSettingsDomainService.getUserFallbackChain(userId);
-
-                // 5. 获取服务商信息（支持高可用、会话亲和性和降级）
-                HighAvailabilityResult result = highAvailabilityDomainService.selectBestProvider(model, userId,
-                        sessionId, fallbackChain);
-                ProviderEntity provider = result.getProvider();
-                ModelEntity selectedModel = result.getModel();
-                ChatModel strandClient = llmServiceFactory.getStrandClient(provider, selectedModel);
-                ArrayList<ChatMessage> chatMessages = new ArrayList<>();
-                chatMessages.add(new SystemMessage(AgentPromptTemplates.getStartConversationPrompt()));
-                chatMessages.add(new UserMessage(chatContext.getUserMessage()));
-                ChatResponse chat = strandClient.chat(chatMessages);
-                String sessionTitle = chat.aiMessage().text();
-                sessionDomainService.updateSession(chatContext.getSessionId(), userId, sessionTitle);
-
+        taskExecutor.execute(() -> {
+            try {
+                doSmartRename(chatContext);
+            } catch (Exception e) {
+                // 任何异常都不能阻塞 chat 主流程：记日志 + 降级用用户消息前 20 字作标题
+                logger.error("智能重命名会话失败，降级用用户消息截前 20 字: sessionId={}",
+                        chatContext.getSessionId(), e);
+                try {
+                    String fallback = fallbackSessionTitle(chatContext.getUserMessage());
+                    sessionDomainService.updateSession(chatContext.getSessionId(), chatContext.getUserId(), fallback);
+                } catch (Exception e2) {
+                    logger.error("降级标题写入也失败，保留默认标题: sessionId={}",
+                            chatContext.getSessionId(), e2);
+                }
             }
         });
-        thread.start();
+    }
+
+    /** 实际执行重命名逻辑。抽出便于加 try-catch + 单测。 */
+    private void doSmartRename(ChatContext chatContext) {
+        String sessionId = chatContext.getSessionId();
+        if (!messageDomainService.isFirstConversation(sessionId)) {
+            return;
+        }
+        String userId = chatContext.getUserId();
+        String userDefaultModelId = userSettingsDomainService.getUserDefaultModelId(userId);
+        ModelEntity model = llmDomainService.getModelById(userDefaultModelId);
+        if (model == null) {
+            // 用户没设置默认模型，跳过智能命名
+            logger.info("用户未设置默认模型，跳过智能重命名: userId={}, sessionId={}", userId, sessionId);
+            return;
+        }
+        List<String> fallbackChain = userSettingsDomainService.getUserFallbackChain(userId);
+        HighAvailabilityResult result = highAvailabilityDomainService.selectBestProvider(model, userId,
+                sessionId, fallbackChain);
+        ProviderEntity provider = result.getProvider();
+        ModelEntity selectedModel = result.getModel();
+        ChatModel strandClient = llmServiceFactory.getStrandClient(provider, selectedModel);
+        ArrayList<ChatMessage> chatMessages = new ArrayList<>();
+        chatMessages.add(new SystemMessage(AgentPromptTemplates.getStartConversationPrompt()));
+        chatMessages.add(multimodalMessageFactory.buildUserMessage(chatContext));
+        ChatResponse chat = strandClient.chat(chatMessages);
+        String sessionTitle = sanitizeSessionTitle(chat.aiMessage().text(), chatContext.getUserMessage());
+        sessionDomainService.updateSession(chatContext.getSessionId(), userId, sessionTitle);
+    }
+
+    /** 降级用用户消息前 20 字作标题 */
+    private static String fallbackSessionTitle(String userMessage) {
+        if (userMessage == null || userMessage.isEmpty()) {
+            return "新会话";
+        }
+        return userMessage.length() > 20 ? userMessage.substring(0, 20) : userMessage;
+    }
+
+    /** 剥离 LLM 输出中的 <think>...</think> 段。集中放在一处，避免多处 regex 不一致。 */
+    private static final Pattern THINK_TAG_PATTERN = Pattern.compile("<think>[\\s\\S]*?</think>");
+
+    /** 把 LLM 输出中的 <think>...</think> 段剥掉，返回剩余正文。 */
+    private static String stripThinkTags(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        return THINK_TAG_PATTERN.matcher(text).replaceAll("").trim();
+    }
+
+    /** 清洗 LLM 生成的会话标题：取首行、去前缀、限长；空时降级为用户消息截前 20 字。
+     * <p>
+     * 解决两个症状：（a）LLM 不遵守"只回标题"指令把首条回复内容当 title 返回；
+     * （b）title 字段被原样长文污染，前端会话列表显示异常。
+     * </p>
+     *
+     * @param raw LLM 原始返回
+     * @param userMessage 兜底用的用户消息
+     * @return 清洗后的标题 */
+    private static String sanitizeSessionTitle(String raw, String userMessage) {
+        if (raw == null) {
+            raw = "";
+        }
+        // 1) trim + 剥离 <think> 段（与落库清洗一致）
+        String t = stripThinkTags(raw);
+        // 2) 取首行（LLM 有时会多写解释）
+        int nl = t.indexOf('\n');
+        if (nl >= 0) {
+            t = t.substring(0, nl).trim();
+        }
+        // 3) 去掉常见前缀 "标题："/"Title:"/"主题："
+        t = t.replaceAll("^(标题[:：]\\s*|Title[:：]\\s*|主题[:：]\\s*)", "").trim();
+        // 4) 限长 30
+        if (t.length() > 30) {
+            t = t.substring(0, 30);
+        }
+        // 5) 空时降级用用户消息前 20 字
+        if (t.isEmpty() && userMessage != null && !userMessage.isEmpty()) {
+            t = userMessage.length() > 20 ? userMessage.substring(0, 20) : userMessage;
+        }
+        return t;
     }
 
     /** 创建计费上下文

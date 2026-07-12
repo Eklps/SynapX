@@ -27,6 +27,14 @@ public class MessageDTO {
     private MessageType messageType;
 
     private List<String> fileUrls = new ArrayList<>();
+
+    /** 原始 metadata JSON 字符串（保留供调试/未解析场景） */
+    private String metadata;
+    /** 思考链内容（解析自 metadata.thinkingContent） */
+    private String thinkingContent;
+    /** 工具调用汇总（解析自 metadata.toolCallGroup），结构由前端 ToolCallGroup 类型定义 */
+    private Object toolCallGroup;
+
     /** 无参构造函数 */
     public MessageDTO() {
     }
@@ -94,5 +102,29 @@ public class MessageDTO {
 
     public void setFileUrls(List<String> fileUrls) {
         this.fileUrls = fileUrls;
+    }
+
+    public String getMetadata() {
+        return metadata;
+    }
+
+    public void setMetadata(String metadata) {
+        this.metadata = metadata;
+    }
+
+    public String getThinkingContent() {
+        return thinkingContent;
+    }
+
+    public void setThinkingContent(String thinkingContent) {
+        this.thinkingContent = thinkingContent;
+    }
+
+    public Object getToolCallGroup() {
+        return toolCallGroup;
+    }
+
+    public void setToolCallGroup(Object toolCallGroup) {
+        this.toolCallGroup = toolCallGroup;
     }
 }

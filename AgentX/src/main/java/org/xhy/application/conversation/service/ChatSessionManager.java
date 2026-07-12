@@ -61,6 +61,12 @@ public class ChatSessionManager {
      * @param sessionId 会话ID
      * @param emitter SSE发送器 */
     public void registerSession(String sessionId, SseEmitter emitter) {
+        // 在注册新连接之前，清理可能残留的中断标记，避免旧的 USER_INTERRUPTED 阻塞本次请求
+        // （前端断开/网络抖动时 emitter 的 onCompletion/onTimeout/onError 可能不会触发，
+        // 导致 interruptedSessionIds 永远包含本 sessionId，使下次 chat 在策略 B 下被立刻短路）
+        if (interruptedSessionIds.remove(sessionId)) {
+            logger.info("注册新会话前清理残留的中断标记: sessionId={}", sessionId);
+        }
         SessionInfo sessionInfo = new SessionInfo(sessionId, emitter);
         activeSessions.put(sessionId, sessionInfo);
         logger.info("注册对话会话: sessionId={}", sessionId);
@@ -91,6 +97,21 @@ public class ChatSessionManager {
             long duration = System.currentTimeMillis() - removed.getStartTime();
             logger.info("移除对话会话: sessionId={}, 持续时间={}ms", sessionId, duration);
         }
+    }
+
+    /** 仅清理残留的中断标记而不影响活跃会话。
+     * <p>
+     * 用于前端在意识到上一个 SSE 连接异常退出时显式调用，避免下一次 chat 时该会话被旧中断标记短路。
+     * </p>
+     *
+     * @param sessionId 会话ID
+     * @return 是否清除了残留标记（true 表示曾存在残留） */
+    public boolean clearInterruptedFlag(String sessionId) {
+        boolean removed = interruptedSessionIds.remove(sessionId);
+        if (removed) {
+            logger.info("显式清理残留的中断标记: sessionId={}", sessionId);
+        }
+        return removed;
     }
 
     /** 中断指定的对话会话
@@ -131,6 +152,7 @@ public class ChatSessionManager {
     }
 
     /** 检查会话是否已被中断
+     *
      * @param sessionId 会话ID
      * @return true表示已中断，false表示未中断或会话不存在 */
     public boolean isSessionInterrupted(String sessionId) {

@@ -1,6 +1,7 @@
 import { API_CONFIG, API_ENDPOINTS } from "@/lib/api-config"
 import { StreamResponse } from "@/types/api"
 import { toast } from "@/hooks/use-toast"
+import { processSSEChunk } from "@/lib/parse-sse"
 
 /**
  * 流式聊天API服务
@@ -162,30 +163,23 @@ export async function parseSSEResponse(
   try {
     const reader = response.body?.getReader()
     if (!reader) throw new Error("Response body is null")
-    
+
     const decoder = new TextDecoder()
     let buffer = ""
-    
+
     while (true) {
       const { done, value } = await reader.read()
+      const chunkText = value ? decoder.decode(value, { stream: true }) : ""
+      // 修复：服务端在最后一条 SSE 事件后只发 \n 或直接关流时，
+      // 原先的 split("\n\n") + pop() 模式会把整段当"残留"丢弃，
+      // 导致回复最后几个字不显示。改为 done 时强制 flush 残留 buffer。
+      buffer = processSSEChunk(
+        buffer,
+        chunkText,
+        done,
+        (jsonData) => onMessage(jsonData as StreamResponse),
+      )
       if (done) break
-      
-      buffer += decoder.decode(value, { stream: true })
-      
-      const lines = buffer.split("\n\n")
-      buffer = lines.pop() || ""
-      
-      for (const line of lines) {
-        if (line.startsWith("data:")) {
-          try {
-            const jsonData = JSON.parse(line.slice(5))
-            onMessage(jsonData)
-          } catch (e) {
- 
-            if (onError) onError(e)
-          }
-        }
-      }
     }
   } catch (error) {
  

@@ -18,8 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 import jakarta.servlet.http.HttpServletRequest;
 
 /** 上传文件的静态访问控制器。
- * <p>直接从本地存储读取文件并返回，避免依赖 dromara 的静态资源映射
- * （后者在 Docker-in-Docker 场景下 location 解析不一致）。 */
+ * <p>
+ * 直接从本地存储读取文件并返回，避免依赖 dromara 的静态资源映射 （后者在 Docker-in-Docker 场景下 location 解析不一致）。 */
 @RestController
 @RequestMapping("/file")
 public class FileAccessController {
@@ -63,10 +63,8 @@ public class FileAccessController {
                 contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
             }
 
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_TYPE, contentType)
-                    .header(HttpHeaders.CACHE_CONTROL, "max-age=3600")
-                    .body(content);
+            return ResponseEntity.ok().header(HttpHeaders.CONTENT_TYPE, contentType)
+                    .header(HttpHeaders.CACHE_CONTROL, "max-age=3600").body(content);
         } catch (IOException e) {
             logger.error("读取文件失败: {}", relative, e);
             return ResponseEntity.internalServerError().build();

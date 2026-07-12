@@ -21,6 +21,7 @@ import MultiModalUpload, { type ChatFile } from "@/components/multi-modal-upload
 import MessageFileDisplay from "@/components/message-file-display"
 import { uploadSingleFile } from "@/lib/file-upload-service"
 import { ThinkingToolCallGroup } from "@/components/agent/ThinkingToolCallGroup"
+import { processSSEChunk } from "@/lib/parse-sse"
 
 interface ChatPanelProps {
   conversationId: string
@@ -100,6 +101,18 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
   // 添加消息序列计数器
   const messageSequenceNumber = useRef(0);
 
+  // 结束当前流式会话：把所有"进行中"的 UI 状态复位到空闲态
+  // 任何"对话流自然结束 / 主动中断 / 切换会话 / 后端 done 信号"的出口都应调用此函数
+  const resetChatSession = () => {
+    setIsTyping(false);
+    setIsThinking(false);
+    setCanInterrupt(false);
+    setIsInterrupting(false);
+    if (abortControllerRef.current) {
+      abortControllerRef.current = null;
+    }
+  };
+
   // 在组件初始化和conversationId变更时重置状态
   useEffect(() => {
     hasReceivedFirstResponse.current = false;
@@ -111,13 +124,9 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
     messageToolCallGroupAccumulator.current = null;
     setCompletedTextMessages(new Set());
     messageSequenceNumber.current = 0;
-    
+
     // 重置中断相关状态
-    setCanInterrupt(false);
-    setIsInterrupting(false);
-    if (abortControllerRef.current) {
-      abortControllerRef.current = null;
-    }
+    resetChatSession();
   }, [conversationId]);
 
   // 添加消息到列表的辅助函数
@@ -244,10 +253,7 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
         variant: "destructive"
       })
     } finally {
-      setIsInterrupting(false)
-      setCanInterrupt(false)
-      setIsTyping(false)
-      setIsThinking(false)
+      resetChatSession();
     }
   }
 
@@ -398,42 +404,29 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
       while (true) {
         // 检查是否被中断
         if (abortControllerRef.current?.signal.aborted) {
- 
+
           break
         }
-        
-        const { done, value } = await reader.read()
-        if (done) break
 
-        // 解码数据块并添加到缓冲区
-        buffer += decoder.decode(value, { stream: true })
-        
-        // 处理缓冲区中的SSE数据
-        const lines = buffer.split("\n\n")
-        // 保留最后一个可能不完整的行
-        buffer = lines.pop() || ""
-        
-        for (const line of lines) {
-          if (line.startsWith("data:")) {
+        const { done, value } = await reader.read()
+        const chunkText = value ? decoder.decode(value, { stream: true }) : ""
+
+        // 修复：done=true 时强制 flush 残留 buffer，避免最后一条 SSE 事件丢失
+        // （见 lib/parse-sse.ts 说明）
+        buffer = processSSEChunk(
+          buffer,
+          chunkText,
+          done,
+          (jsonData) => {
             try {
-              // 提取JSON部分（去掉前缀"data:"，处理可能的重复前缀情况）
-              let jsonStr = line.substring(5);
-              // 处理可能存在的重复data:前缀
-              if (jsonStr.startsWith("data:")) {
-                jsonStr = jsonStr.substring(5);
-              }
- 
-              
-              const data = JSON.parse(jsonStr) as StreamData
- 
-              
-              // 处理消息 - 传递baseMessageId作为前缀
-              handleStreamDataMessage(data, baseMessageId);
+              handleStreamDataMessage(jsonData as StreamData, baseMessageId)
             } catch (e) {
- 
+
             }
-          }
-        }
+          },
+        )
+
+        if (done) break
       }
     } catch (error) {
  
@@ -450,12 +443,7 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
         })
       }
     } finally {
-      setIsTyping(false)
-      setCanInterrupt(false) // 重置中断状态
-      setIsInterrupting(false)
-      if (abortControllerRef.current) {
-        abortControllerRef.current = null
-      }
+      resetChatSession();
     }
   }
 
@@ -465,6 +453,13 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
     if (!hasReceivedFirstResponse.current) {
       hasReceivedFirstResponse.current = true;
       setIsThinking(false);
+    }
+
+    // 【必须在所有 type-specific early-return 之前】收到 data.done 立即复位 UI：
+    // 否则 agent 路径最后一条 done:true 消息若为 THINKING_END / TOOL_CALL_GROUP_END，
+    // 会从 488/501 行提前 return，绕过末尾的 resetChatSession()，导致红停止按钮卡住。
+    if (data.done) {
+      resetChatSession();
     }
     
     // 处理错误消息
@@ -521,20 +516,21 @@ export function ChatPanel({ conversationId, isFunctionalAgent = false, agentName
     
     // 消息结束信号处理
     if (data.done) {
- 
-      
+
+
       // 如果是可显示类型且有内容，完成该消息
       if (isDisplayableType && messageContentAccumulator.current.content) {
         finalizeMessage(currentMessageId, messageContentAccumulator.current);
       }
-      
+
       // 无论如何，都重置消息累积器，准备接收下一条消息
       resetMessageAccumulator();
-      
+
       // 增加消息序列计数
       messageSequenceNumber.current += 1;
-      
- 
+
+      // UI 复位已前置到函数顶部（避开 type-specific 早 return），此处不再重复。
+
     }
   }
   

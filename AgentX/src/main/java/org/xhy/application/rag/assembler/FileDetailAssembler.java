@@ -1,5 +1,6 @@
 package org.xhy.application.rag.assembler;
 
+import cn.hutool.core.util.IdUtil;
 import org.springframework.beans.BeanUtils;
 import org.xhy.application.rag.dto.FileDetailDTO;
 import org.xhy.application.rag.dto.UploadFileRequest;
@@ -23,6 +24,8 @@ public class FileDetailAssembler {
             return null;
         }
         FileDetailEntity entity = new FileDetailEntity();
+        // 由应用层生成稳定的 32 位 id,避免 x-file-storage 返回的 id 与历史记录冲突
+        entity.setId(IdUtil.fastSimpleUUID());
         entity.setDataSetId(request.getDatasetId());
         entity.setMultipartFile(request.getFile());
         entity.setUserId(userId);

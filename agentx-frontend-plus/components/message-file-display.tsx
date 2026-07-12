@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { FileText, Image, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -9,10 +9,54 @@ interface MessageFileDisplayProps {
   className?: string // 额外的样式类
 }
 
+/** 把字节数格式化为可读字符串。无效值返回 "Unknown size"。 */
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return 'Unknown size'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
 export default function MessageFileDisplay({
   fileUrls,
   className = ""
 }: MessageFileDisplayProps) {
+  // 每个 URL 对应的格式化后大小；undefined=正在加载，"Unknown size"=已尝试但失败
+  const [sizes, setSizes] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!fileUrls || fileUrls.length === 0) return
+    let cancelled = false
+    const fetchSizes = async () => {
+      const results = await Promise.all(
+        fileUrls.map(async (url): Promise<[string, string] | null> => {
+          // blob:/data: 是浏览器本地/内存协议，CORS 必然失败且无意义查询
+          if (/^(blob|data):/.test(url)) return null
+          try {
+            const res = await fetch(url, { method: 'HEAD' })
+            if (cancelled) return null
+            if (!res.ok) return null
+            const len = res.headers.get('content-length')
+            if (!len) return null
+            const bytes = parseInt(len, 10)
+            return [url, formatBytes(bytes)]
+          } catch {
+            return null
+          }
+        })
+      )
+      if (cancelled) return
+      const next: Record<string, string> = {}
+      results.forEach((r) => { if (r) next[r[0]] = r[1] })
+      if (Object.keys(next).length > 0) {
+        setSizes((prev) => ({ ...prev, ...next }))
+      }
+    }
+    fetchSizes()
+    return () => { cancelled = true }
+  }, [fileUrls])
+
   if (!fileUrls || fileUrls.length === 0) {
     return null
   }
@@ -23,13 +67,13 @@ export default function MessageFileDisplay({
       const urlObj = new URL(url)
       const pathname = urlObj.pathname
       const fileName = pathname.substring(pathname.lastIndexOf('/') + 1)
-      
+
       // 如果文件名包含时间戳前缀，提取原始文件名
       const match = fileName.match(/^\d+_[a-z0-9]+\.(.+)$/)
       if (match) {
         return `file.${match[1]}`
       }
-      
+
       return fileName || 'unknown'
     } catch {
       return 'unknown'
@@ -40,20 +84,20 @@ export default function MessageFileDisplay({
   const getFileType = (url: string): 'image' | 'document' => {
     const fileName = getFileNameFromUrl(url)
     const extension = fileName.split('.').pop()?.toLowerCase()
-    
+
     const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']
-    
+
     if (imageExtensions.includes(extension || '')) {
       return 'image'
     }
-    
+
     return 'document'
   }
 
-  // 格式化文件大小（模拟，因为无法从URL获取真实大小）
-  const formatFileSize = (url: string): string => {
-    // 这里可以根据实际情况调整，或者从API获取文件大小
-    return 'Unknown size'
+  // 读取已缓存的大小；加载中显示 "..."，加载失败显示 "Unknown size"
+  const getFileSize = (url: string): string => {
+    if (url in sizes) return sizes[url]
+    return /^(blob|data):/.test(url) ? 'Unknown size' : '...'
   }
 
   // 下载文件
@@ -72,7 +116,7 @@ export default function MessageFileDisplay({
       {fileUrls.map((url, index) => {
         const fileName = getFileNameFromUrl(url)
         const fileType = getFileType(url)
-        const fileSize = formatFileSize(url)
+        const fileSize = getFileSize(url)
         
         return (
           <div key={index} className="border rounded-lg overflow-hidden bg-white shadow-sm max-w-xs">

@@ -32,7 +32,13 @@ public class ConversationDomainService {
     }
 
     public void insertBathMessage(List<MessageEntity> messages) {
-        messageRepository.insert(messages);
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        // 逐条 insert 避免 MyBatis-Plus 批量 insert 内部 sort by 主键 NPE
+        for (MessageEntity m : messages) {
+            messageRepository.insert(m);
+        }
     }
 
     public MessageEntity saveMessage(MessageEntity message) {

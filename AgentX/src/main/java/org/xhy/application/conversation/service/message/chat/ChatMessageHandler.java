@@ -14,6 +14,7 @@ import org.xhy.domain.user.service.UserSettingsDomainService;
 import org.xhy.infrastructure.llm.LLMServiceFactory;
 import org.xhy.application.billing.service.BillingService;
 import org.xhy.domain.user.service.AccountDomainService;
+import org.xhy.infrastructure.llm.util.MultimodalMessageFactory;
 
 /** 标准消息处理器 */
 @Component(value = "chatMessageHandler")
@@ -25,9 +26,10 @@ public class ChatMessageHandler extends AbstractMessageHandler {
             HighAvailabilityDomainService highAvailabilityDomainService, SessionDomainService sessionDomainService,
             UserSettingsDomainService userSettingsDomainService, LLMDomainService llmDomainService,
             BuiltInToolRegistry builtInToolRegistry, BillingService billingService,
-            AccountDomainService accountDomainService, ChatSessionManager chatSessionManager) {
+            AccountDomainService accountDomainService, ChatSessionManager chatSessionManager,
+            MultimodalMessageFactory multimodalMessageFactory) {
         super(llmServiceFactory, messageDomainService, highAvailabilityDomainService, sessionDomainService,
                 userSettingsDomainService, llmDomainService, builtInToolRegistry, billingService, accountDomainService,
-                chatSessionManager);
+                chatSessionManager, multimodalMessageFactory);
     }
 }

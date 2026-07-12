@@ -7,6 +7,7 @@ import { RetrievalProcess } from "./RetrievalProcess";
 import { ThinkingProcess } from "./ThinkingProcess";
 import type { Message } from '@/hooks/rag-chat/useRagChatSession';
 import type { RetrievedFileInfo, DocumentSegment } from '@/types/rag-dataset';
+import { isErrorMessage } from "@/lib/message-utils";
 
 interface MessageItemProps {
   message: Message;
@@ -17,16 +18,6 @@ interface MessageItemProps {
   expandedThinking?: boolean;
   onToggleThinking?: () => void;
 }
-
-// 检测是否为错误消息
-const isErrorMessage = (content: string): boolean => {
-  const errorKeywords = [
-    '错误', '失败', '无法', '未配置', '抱歉', 
-    '出现了错误', '请重试', '处理失败', '未找到',
-    '不存在', '配置错误', '连接失败'
-  ];
-  return errorKeywords.some(keyword => content.includes(keyword));
-};
 
 export function MessageItem({ 
   message, 

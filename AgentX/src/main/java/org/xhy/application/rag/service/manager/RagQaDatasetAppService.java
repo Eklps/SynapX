@@ -486,6 +486,7 @@ public class RagQaDatasetAppService {
             // 发送OCR处理MQ消息
             RagDocMessage ocrMessage = new RagDocMessage();
             ocrMessage.setFileId(request.getFileId());
+            ocrMessage.setUserId(userId);
             ocrMessage.setPageSize(fileEntity.getFilePageSize());
 
             MessageEnvelope<RagDocMessage> envelope = MessageEnvelope.builder(ocrMessage)
@@ -589,6 +590,7 @@ public class RagQaDatasetAppService {
             // 发送OCR处理MQ消息
             RagDocMessage ocrMessage = new RagDocMessage();
             ocrMessage.setFileId(request.getFileId());
+            ocrMessage.setUserId(userId);
             ocrMessage.setPageSize(fileEntity.getFilePageSize());
 
             MessageEnvelope<RagDocMessage> envelope = MessageEnvelope.builder(ocrMessage)

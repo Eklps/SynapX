@@ -394,8 +394,9 @@ public class ConversationAppService {
             retainedMessages = result.getRetainedMessages();
             // 统一对 活跃消息进行时间升序排序
             List<String> retainedMessageIds = retainedMessages.stream()
-                    .sorted(Comparator.comparing(TokenMessage::getCreatedAt)).map(TokenMessage::getId)
-                    .collect(Collectors.toList());
+                    .sorted(Comparator.comparing(TokenMessage::getCreatedAt,
+                            Comparator.nullsLast(Comparator.naturalOrder())))
+                    .map(TokenMessage::getId).collect(Collectors.toList());
             if (strategyType == TokenOverflowStrategyEnum.SUMMARIZE
                     && retainedMessages.get(0).getRole().equals(Role.SUMMARY.name())) {
                 newSummaryMessage = retainedMessages.get(0);

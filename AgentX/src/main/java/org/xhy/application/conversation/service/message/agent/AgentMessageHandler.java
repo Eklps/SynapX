@@ -18,6 +18,7 @@ import org.xhy.domain.user.service.UserSettingsDomainService;
 import org.xhy.infrastructure.llm.LLMServiceFactory;
 import org.xhy.application.billing.service.BillingService;
 import org.xhy.domain.user.service.AccountDomainService;
+import org.xhy.infrastructure.llm.util.MultimodalMessageFactory;
 
 /** Agent消息处理器 用于支持工具调用的对话模式 实现任务拆分、执行和结果汇总的工作流 使用事件驱动架构进行状态转换 */
 @Component(value = "agentMessageHandler")
@@ -31,10 +32,11 @@ public class AgentMessageHandler extends TracingMessageHandler {
             UserSettingsDomainService userSettingsDomainService, LLMDomainService llmDomainService,
             BuiltInToolRegistry builtInToolRegistry, BillingService billingService,
             AccountDomainService accountDomainService, ChatSessionManager chatSessionManager,
-            TraceCollector traceCollector, AgentToolManager agentToolManager) {
+            MultimodalMessageFactory multimodalMessageFactory, TraceCollector traceCollector,
+            AgentToolManager agentToolManager) {
         super(llmServiceFactory, messageDomainService, highAvailabilityDomainService, sessionDomainService,
                 userSettingsDomainService, llmDomainService, builtInToolRegistry, billingService, accountDomainService,
-                chatSessionManager, traceCollector);
+                chatSessionManager, multimodalMessageFactory, traceCollector);
         this.agentToolManager = agentToolManager;
     }
 
