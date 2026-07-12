@@ -199,13 +199,22 @@ export function useRagChatSession(options: UseRagChatSessionOptions = {}) {
               if (prev.length > 0) {
                 const lastMessage = prev[prev.length - 1];
                 if (lastMessage && lastMessage.role === 'assistant') {
+                  // 仅在 assistant 消息为空时（确实没收到任何 RAG_ANSWER_PROGRESS）
+                  // 才覆盖为兜底错误——否则保留 LLM 的真实回复，让用户能看到。
+                  if (!lastMessage.content || lastMessage.content.trim() === '') {
+                    return [
+                      ...prev.slice(0, -1),
+                      {
+                        ...lastMessage,
+                        content: '抱歉，处理您的请求时出现了错误。请重试。',
+                        isStreaming: false
+                      }
+                    ];
+                  }
+                  // 已有真实内容：仅标记流式结束，不覆盖
                   return [
                     ...prev.slice(0, -1),
-                    {
-                      ...lastMessage,
-                      content: '抱歉，处理您的请求时出现了错误。请重试。',
-                      isStreaming: false
-                    }
+                    { ...lastMessage, isStreaming: false }
                   ];
                 }
               }

@@ -24,6 +24,7 @@ import cn.hutool.core.lang.Dict;
 import cn.hutool.core.util.StrUtil;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingStore;
+import java.util.List;
 
 /** RAG 文件存储策略
  * 
@@ -80,14 +81,19 @@ public class RagFileStorageStrategy implements FileStorageStrategy {
     @Override
     public FileInfo getByUrl(String url) {
         try {
-            FileDetailEntity fileDetailEntity = fileDetailRepository
-                    .selectOne(Wrappers.<FileDetailEntity>lambdaQuery().eq(FileDetailEntity::getUrl, url));
+            // 注意：历史数据中同一 url 可能有多条 file_detail 记录
+            // （x-file-storage 上传钩子与业务层 uploadFileToDataset 双重插入导致）。
+            // 用 selectList + lastCreatedAt 取最新一条，避免 selectOne 抛 TooManyResultsException
+            // 阻塞 RAG 处理。
+            List<FileDetailEntity> entities = fileDetailRepository.selectList(Wrappers
+                    .<FileDetailEntity>lambdaQuery().eq(FileDetailEntity::getUrl, url)
+                    .orderByDesc(FileDetailEntity::getCreatedAt).last("LIMIT 1"));
 
-            if (fileDetailEntity == null) {
+            if (entities == null || entities.isEmpty()) {
                 return null;
             }
 
-            return convertToFileInfo(fileDetailEntity);
+            return convertToFileInfo(entities.get(0));
         } catch (Exception e) {
             throw new RuntimeException("查询RAG文件失败", e);
         }

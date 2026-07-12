@@ -27,6 +27,7 @@ import org.xhy.domain.user.service.UserSettingsDomainService;
 import org.xhy.domain.user.service.AccountDomainService;
 import org.xhy.infrastructure.llm.LLMServiceFactory;
 import org.xhy.infrastructure.llm.util.MultimodalMessageFactory;
+import org.xhy.infrastructure.llm.util.ThinkTagFilter;
 import org.xhy.infrastructure.transport.MessageTransport;
 import org.xhy.application.billing.service.BillingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -196,6 +197,8 @@ public class RagMessageHandler extends AbstractMessageHandler {
             MessageEntity userEntity, MessageEntity llmEntity, String ragPrompt) {
 
         AtomicReference<StringBuilder> messageBuilder = new AtomicReference<>(new StringBuilder());
+        // 跨 chunk 持久化的 <think> 标签过滤状态机（langchain4j fork 不会自动剥离）
+        ThinkTagFilter.State thinkFilterState = ThinkTagFilter.State.INITIAL;
         TokenStream tokenStream = agent.chat(ragPrompt);
 
         // 记录调用开始时间
@@ -219,6 +222,13 @@ public class RagMessageHandler extends AbstractMessageHandler {
 
         // 部分回答处理
         tokenStream.onPartialResponse(fragment -> {
+            // 剥离 <think>...</think> 内容（langchain4j fork 不会自动剥）
+            String visibleFragment = thinkFilterState.filter(fragment);
+            // 整个 chunk 都在 think 块内时 visibleFragment 为空，跳过本 chunk 的发送，
+            // 但继续等后续 chunk（state 跨 chunk 持续，可能 think 在下个 chunk 才闭合）
+            if (visibleFragment.isEmpty()) {
+                return;
+            }
             // 如果有思考过程但还没结束思考，先结束思考阶段
             if (hasThinkingProcess[0] && !thinkingEnded[0]) {
                 transport.sendMessage(connection, AgentChatResponse.build("思考完成", MessageType.RAG_THINKING_END));
@@ -233,8 +243,8 @@ public class RagMessageHandler extends AbstractMessageHandler {
                 thinkingEnded[0] = true;
             }
 
-            messageBuilder.get().append(fragment);
-            transport.sendMessage(connection, AgentChatResponse.build(fragment, MessageType.RAG_ANSWER_PROGRESS));
+            messageBuilder.get().append(visibleFragment);
+            transport.sendMessage(connection, AgentChatResponse.build(visibleFragment, MessageType.RAG_ANSWER_PROGRESS));
         });
 
         // 思维链处理

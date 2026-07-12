@@ -1,4 +1,5 @@
 import { API_CONFIG } from "@/lib/api-config"
+import { filterThinkTag, INITIAL_THINK_FILTER_STATE, type ThinkFilterState } from "@/lib/think-tag-filter"
 
 // 预览请求类型
 export interface AgentPreviewRequest {
@@ -216,6 +217,8 @@ export async function previewAgent(
     }
 
     let fullContent = ''
+    // 跨 chunk 持久化的 think 标签过滤状态机
+    const thinkFilterState: ThinkFilterState = { ...INITIAL_THINK_FILTER_STATE }
 
     await handlePreviewStream(
       stream,
@@ -223,10 +226,14 @@ export async function previewAgent(
         // 处理可显示的消息类型内容
         const displayableTypes = [undefined, "TEXT", "TOOL_CALL"]
         const isDisplayableType = displayableTypes.includes(response.messageType)
-        
+
         if (isDisplayableType && response.content) {
-          fullContent += response.content
-          onMessage(response.content) // 发送增量内容给UI
+          // 剥离 <think>...</think> 内容（langchain4j fork 不会自动剥）
+          const visible = filterThinkTag(response.content, thinkFilterState)
+          if (visible) {
+            fullContent += visible
+            onMessage(visible) // 只发送过滤后的增量内容给UI
+          }
         }
       },
       onError,
