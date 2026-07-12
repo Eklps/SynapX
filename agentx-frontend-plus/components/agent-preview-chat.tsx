@@ -9,7 +9,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Loader2, MessageCircle, Send, Bot, User, AlertCircle, Paperclip, X, Wrench, Square } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { previewAgentStream, handlePreviewStream, parseStreamData, createStreamDecoder, type AgentPreviewRequest, type MessageHistoryItem, type AgentChatResponse } from '@/lib/agent-preview-service'
-import { filterThinkTag } from '@/lib/think-tag-filter'
 import { uploadMultipleFiles, type UploadResult, type UploadFileInfo } from '@/lib/file-upload-service'
 import { MessageType } from '@/types/conversation'
 import { Highlight, themes } from 'prism-react-renderer'
@@ -111,10 +110,6 @@ export default function AgentPreviewChat({
     content: "",
     type: MessageType.TEXT as MessageType
   })
-  // 跨 chunk 持久化的 <think> 标签过滤状态机（langchain4j fork 不会自动剥离）
-  const thinkFilterState = useRef({
-    inThinkTag: false,
-  })
   const messageSequenceNumber = useRef(0)
   const [completedTextMessages, setCompletedTextMessages] = useState<Set<string>>(new Set())
   const [currentAssistantMessage, setCurrentAssistantMessage] = useState<{ id: string; hasContent: boolean } | null>(null)
@@ -129,7 +124,6 @@ export default function AgentPreviewChat({
       content: "",
       type: MessageType.TEXT
     }
-    thinkFilterState.current = { inThinkTag: false }
     setCompletedTextMessages(new Set())
     messageSequenceNumber.current = 0
     setCurrentAssistantMessage(null)
@@ -340,19 +334,12 @@ export default function AgentPreviewChat({
     const isDisplayableType = displayableTypes.includes(data.messageType)
     
     if (isDisplayableType && data.content) {
-      // 剥离 <think>...</think> 内容（langchain4j fork 不会自动剥，preview 路径不区分
-      // THINKING_* 消息类型，think 标签会作为 TEXT 内容原样下发）
-      const visibleContent = filterThinkTag(data.content, thinkFilterState.current)
-      // DEBUG: 临时诊断日志，确认代码路径生效
-      console.log("[preview-filter] in=", JSON.stringify(data.content.slice(0, 80)), "out=", JSON.stringify(visibleContent.slice(0, 80)), "inThinkTag=", thinkFilterState.current.inThinkTag)
-      if (visibleContent) {
-        // 累积消息内容（已过滤）
-        messageContentAccumulator.current.content += visibleContent
-        messageContentAccumulator.current.type = messageType
-
-        // 更新UI显示
-        updateOrCreateMessageInUI(currentMessageId, messageContentAccumulator.current)
-      }
+      // 累积消息内容
+      messageContentAccumulator.current.content += data.content
+      messageContentAccumulator.current.type = messageType
+      
+      // 更新UI显示
+      updateOrCreateMessageInUI(currentMessageId, messageContentAccumulator.current)
     }
     
     // 消息结束信号处理
@@ -472,12 +459,11 @@ export default function AgentPreviewChat({
 
   // 重置消息累积器
   const resetMessageAccumulator = () => {
-
+ 
     messageContentAccumulator.current = {
       content: "",
       type: MessageType.TEXT
     }
-    thinkFilterState.current = { inThinkTag: false }
   }
 
   // 判断是否为错误消息
@@ -583,7 +569,6 @@ export default function AgentPreviewChat({
       content: "",
       type: MessageType.TEXT
     }
-    thinkFilterState.current = { inThinkTag: false }
     setCompletedTextMessages(new Set())
     messageSequenceNumber.current = 0
   }
