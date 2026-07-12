@@ -168,4 +168,8 @@ next-env.d.ts
 # doc
 docs/myDocs/
 
+# docker cp 暂存目录（部署时 bulk cp 用的临时 staging，不应入库）
+.tmp-cp-stage/
+.tmp-cp-stage-frontend/
+
 

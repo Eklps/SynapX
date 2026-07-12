@@ -544,6 +544,31 @@ public abstract class AbstractMessageHandler {
         // 完整响应处理
         tokenStream.onCompleteResponse(chatResponse -> {
 
+            // 【修复尾巴丢失】把状态机里残留的 tagParseBuffer 主动 flush 出去
+            // 状态机为防 跨token切碎 永远保留末尾 7 字符（正文）或 8 字符（think 模式）
+            // 在 buffer 里等下一个 token 补全，但流关闭（onCompleteResponse）时
+            // 不会再来 token，必须主动 flush，否则最后若干字符永远不往 SSE 流里推。
+            // 症状（已实测）："你好！很高兴见到你 😊" → 屏幕只显示到 "你好！很高兴见"，末 7 字符 "到你 😊" 丢失。
+            // 刷新后完整是因为 langchain4j 自己累积的完整文本写进了 DB，与 SSE 流是否推送无关。
+            String leftover = tagParseBuffer.toString();
+            if (!leftover.isEmpty()) {
+                if (inThinkTag[0]) {
+                    // 流结束仍卡在 thinking 模式：残留按 thinking content 推一次，
+                    // 并标记 hasThinkingProcess 让兜底 THINKING_END 逻辑生效
+                    thinkingContentBuilder.append(leftover);
+                    transport.sendMessage(connection,
+                            AgentChatResponse.build(leftover, MessageType.THINKING_PROGRESS));
+                    hasThinkingProcess[0] = true;
+                } else {
+                    // 正文模式残留：作为正文推一次，并并入累积器
+                    messageBuilder.get().append(leftover);
+                    transport.sendMessage(connection,
+                            AgentChatResponse.build(leftover, MessageType.TEXT));
+                }
+                tagParseBuffer.setLength(0);
+                inThinkTag[0] = false;
+            }
+
             // 兜底：如果到结束还没发出 THINKING_END，补发一个
             if (hasThinkingProcess[0] && !thinkingEnded[0]) {
                 transport.sendMessage(connection, AgentChatResponse.build("思考完成", MessageType.THINKING_END));

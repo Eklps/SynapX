@@ -26,6 +26,7 @@ import org.xhy.infrastructure.rag.factory.EmbeddingModelFactory;
 import org.xhy.domain.rag.constant.FileProcessingStatusEnum;
 import org.xhy.domain.rag.message.RagDocMessage;
 import org.xhy.domain.rag.message.RagDocSyncStorageMessage;
+import org.xhy.domain.rag.model.ModelConfig;
 import org.xhy.domain.rag.model.DocumentUnitEntity;
 import org.xhy.domain.rag.model.FileDetailEntity;
 import org.xhy.domain.rag.model.RagQaDatasetEntity;
@@ -626,7 +627,10 @@ public class RagQaDatasetAppService {
                 documentUnitDomainService.updateDocumentUnitById(documentUnit);
             }
 
-            // 为每个DocumentUnit发送向量化MQ消息
+            // 为每个DocumentUnit发送向量化MQ消息（必须携带当前用户的嵌入模型配置，
+            // 否则消费者 EmbeddingDomainService 会因 embeddingModelConfig 为 null 直接报"未配置嵌入模型"，
+            // 这正是该调试端点之前一直无法重新向量化的根因）
+            ModelConfig embeddingModelConfig = userModelConfigResolver.getUserEmbeddingModelConfig(userId);
             for (DocumentUnitEntity documentUnit : documentUnits) {
                 RagDocSyncStorageMessage storageMessage = new RagDocSyncStorageMessage();
                 storageMessage.setId(documentUnit.getId());
@@ -636,6 +640,7 @@ public class RagQaDatasetAppService {
                 storageMessage.setContent(documentUnit.getContent());
                 storageMessage.setVector(true);
                 storageMessage.setDatasetId(request.getDatasetId());
+                storageMessage.setEmbeddingModelConfig(embeddingModelConfig);
 
                 MessageEnvelope<RagDocSyncStorageMessage> env = MessageEnvelope.builder(storageMessage)
                         .addEventType(EventType.DOC_SYNC_RAG)
