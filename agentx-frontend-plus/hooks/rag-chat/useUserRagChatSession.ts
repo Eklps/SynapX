@@ -201,29 +201,24 @@ export function useUserRagChatSession(options: UseUserRagChatSessionOptions = {}
             });
           },
           onError: (error) => {
-
+ 
             // 移除Toast错误通知，只通过聊天界面显示错误
             setMessages(prev => {
-
+ 
               if (prev.length > 0) {
                 const lastMessage = prev[prev.length - 1];
-
+ 
                 if (lastMessage && lastMessage.role === 'assistant') {
-                  // 与 useRagChatSession 保持一致：已有真实 LLM 回复时不覆盖
-                  if (!lastMessage.content || lastMessage.content.trim() === '') {
-                    return [
-                      ...prev.slice(0, -1),
-                      {
-                        ...lastMessage,
-                        content: error || '抱歉，处理您的请求时出现了错误。请重试。',
-                        isStreaming: false
-                      }
-                    ];
-                  }
-                  return [
+                  const updatedMessages = [
                     ...prev.slice(0, -1),
-                    { ...lastMessage, isStreaming: false }
+                    {
+                      ...lastMessage,
+                      content: error || '抱歉，处理您的请求时出现了错误。请重试。',
+                      isStreaming: false
+                    }
                   ];
+ 
+                  return updatedMessages;
                 }
               }
  
